@@ -1,0 +1,76 @@
+name: Build and deploy admin
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # GH Pages serves a project repo at <user>.github.io/<repo>/, so the
+      # built SPA needs that path as its base. Custom domains use "/".
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Build
+        env:
+          # Firebase web config — public-by-design, set as repo VARIABLES
+          # (not secrets), since they ship to the browser regardless.
+          VITE_API_BASE: ${{ vars.VITE_API_BASE }}
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+          # actions/configure-pages computes base_url like
+          # https://<user>.github.io/<repo>/ for project pages or
+          # https://<custom>/ for custom domains. Strip the protocol+host
+          # to get the URL path (with trailing slash) Vite wants.
+          VITE_BASE: ${{ steps.pages.outputs.base_path }}/
+        run: npm run build
+
+      # SPA on GH Pages needs a 404.html so client-side routes deep-link.
+      # Cheapest way: copy index.html to 404.html in the dist folder.
+      - name: SPA fallback
+        run: cp dist/index.html dist/404.html
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
