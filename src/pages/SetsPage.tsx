@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { listSets, type Game, type Set as CardSet } from "@/api/catalog";
 import { ApiError } from "@/api/client";
@@ -72,9 +73,10 @@ export function SetsPage() {
       {q.isSuccess && q.data.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {q.data.map((s) => (
-            <div
+            <Link
               key={s.id}
-              className="border border-gray-200 rounded-lg p-4 bg-white hover:shadow-sm transition"
+              to={`/sets/${s.id}`}
+              className="block border border-gray-200 rounded-lg p-4 bg-white hover:shadow-md hover:border-gray-300 transition"
             >
               <div className="flex items-baseline justify-between gap-3">
                 <div className="font-semibold truncate">{s.name}</div>
@@ -85,7 +87,7 @@ export function SetsPage() {
                 {s.release_date && <span>{s.release_date}</span>}
                 {typeof s.card_count === "number" && <span>{s.card_count} cards</span>}
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       )}

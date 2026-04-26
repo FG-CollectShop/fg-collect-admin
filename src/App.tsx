@@ -5,7 +5,11 @@ import { RequireAuth } from "@/auth/RequireAuth";
 import { AppShell } from "@/layout/AppShell";
 import { LoginPage } from "@/pages/LoginPage";
 import { SetsPage } from "@/pages/SetsPage";
-import { PlaceholderPage } from "@/pages/PlaceholderPage";
+import { SetDetailPage } from "@/pages/SetDetailPage";
+import { InventoryPage } from "@/pages/InventoryPage";
+import { InventoryNewPage } from "@/pages/InventoryNewPage";
+import { ListingsPage } from "@/pages/ListingsPage";
+import { OrdersPage } from "@/pages/OrdersPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -41,33 +45,11 @@ export function App() {
                     <Routes>
                       <Route path="/" element={<Navigate to="/sets" replace />} />
                       <Route path="/sets" element={<SetsPage />} />
-                      <Route
-                        path="/inventory"
-                        element={
-                          <PlaceholderPage
-                            title="Inventory"
-                            blurb="Add cards from the catalog, set condition + bin location, track stock per physical item."
-                          />
-                        }
-                      />
-                      <Route
-                        path="/listings"
-                        element={
-                          <PlaceholderPage
-                            title="Listings"
-                            blurb="Manage active for-sale records across storefront / ManaPool / TCGPlayer. Bulk price sweeps live here."
-                          />
-                        }
-                      />
-                      <Route
-                        path="/orders"
-                        element={
-                          <PlaceholderPage
-                            title="Orders"
-                            blurb="Incoming orders from every channel, unified pick/pack flow."
-                          />
-                        }
-                      />
+                      <Route path="/sets/:id" element={<SetDetailPage />} />
+                      <Route path="/inventory" element={<InventoryPage />} />
+                      <Route path="/inventory/new" element={<InventoryNewPage />} />
+                      <Route path="/listings" element={<ListingsPage />} />
+                      <Route path="/orders" element={<OrdersPage />} />
                       <Route path="*" element={<Navigate to="/sets" replace />} />
                     </Routes>
                   </AppShell>
