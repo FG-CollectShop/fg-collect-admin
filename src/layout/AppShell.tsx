@@ -3,10 +3,16 @@ import { Link, NavLink } from "react-router-dom";
 import { useAuth } from "@/auth/AuthContext";
 import { signOut } from "@/firebase";
 
-const nav = [
+const nav: { to: string; label: string; end?: boolean }[] = [
+  { to: "/portfolio", label: "Portfolio" },
   { to: "/sets", label: "Sets" },
-  { to: "/inventory", label: "Inventory" },
-  { to: "/listings", label: "Listings" },
+  // `end` so /inventory doesn't stay highlighted on /inventory/graded.
+  { to: "/inventory", label: "Inventory", end: true },
+  { to: "/inventory/graded", label: "Graded" },
+  { to: "/where", label: "Where is…?" },
+  { to: "/bins", label: "Bins" },
+  { to: "/acquisitions", label: "Acquisitions" },
+  { to: "/pricing", label: "Pricing" },
   { to: "/orders", label: "Orders" },
 ];
 
@@ -24,6 +30,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <NavLink
                 key={n.to}
                 to={n.to}
+                end={n.end}
                 className={({ isActive }) =>
                   `px-3 py-1.5 rounded ${
                     isActive ? "bg-gray-900 text-white" : "text-gray-700 hover:bg-gray-100"
