@@ -13,12 +13,6 @@ const GAME_LABELS: Record<string, string> = {
   yugioh:    "Yu-Gi-Oh",
 };
 
-const INTENT_LABELS: Record<string, string> = {
-  for_sale:      "For Sale",
-  investment:    "Investment",
-  pending_grade: "Pending Grade",
-};
-
 type Filter = "all" | "owned" | "missing";
 
 export function PortfolioSetCardsPage() {
@@ -118,7 +112,6 @@ function CardTile({ card }: { card: PortfolioCard }) {
   const market = card.market_price_cents != null
     ? `$${(card.market_price_cents / 100).toFixed(2)}`
     : null;
-  const intentLabel = card.intent ? INTENT_LABELS[card.intent] : null;
 
   return (
     <div

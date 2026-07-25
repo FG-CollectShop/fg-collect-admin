@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createLot, listLots, lotRoi, updateLot,
-  type AllocationMethod, type Lot, type SourceType,
+  type AllocationMethod, type SourceType,
 } from "@/api/sourcing";
 
 const sources: { value: SourceType; label: string }[] = [
