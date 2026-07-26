@@ -1,0 +1,72 @@
+name: One-shot — attach admin.futuregadgetlabs.com to Cloudflare Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  attach-domain:
+    runs-on: ubuntu-latest
+    env:
+      CF_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      DOMAIN:        admin.futuregadgetlabs.com
+      PROJECT:       fg-collect-admin
+    steps:
+      - name: Find zone ID for futuregadgetlabs.com
+        id: zone
+        run: |
+          ZID=$(curl -sf -H "Authorization: Bearer $CF_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones?name=futuregadgetlabs.com" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['result'][0]['id'])")
+          echo "zone_id=$ZID" >> $GITHUB_OUTPUT
+          echo "Zone: $ZID"
+
+      - name: Delete existing admin CNAME (if any)
+        run: |
+          ZID="${{ steps.zone.outputs.zone_id }}"
+          RECORDS=$(curl -sf -H "Authorization: Bearer $CF_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones/$ZID/dns_records?name=$DOMAIN")
+          echo "$RECORDS" | python3 -c "
+          import sys, json, os, urllib.request
+          d = json.load(sys.stdin)
+          zid = os.environ['ZID']
+          tok = os.environ['CF_API_TOKEN']
+          for r in d['result']:
+              print(f\"Deleting {r['type']} {r['name']} → {r['content']} (id={r['id']})\")
+              req = urllib.request.Request(
+                  f\"https://api.cloudflare.com/client/v4/zones/{zid}/dns_records/{r['id']}\",
+                  method='DELETE',
+                  headers={'Authorization': f'Bearer {tok}'})
+              print(urllib.request.urlopen(req).read().decode()[:200])
+          "
+        env:
+          ZID: ${{ steps.zone.outputs.zone_id }}
+
+      - name: Attach custom domain to Pages project
+        run: |
+          # Cloudflare Pages will auto-create the CNAME record for us.
+          HTTP=$(curl -s -o /tmp/att.json -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\":\"$DOMAIN\"}" \
+            "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/pages/projects/$PROJECT/domains")
+          echo "HTTP $HTTP:"
+          cat /tmp/att.json | head -c 800
+          echo
+          if [ "$HTTP" != "200" ] && [ "$HTTP" != "201" ]; then
+            # 409 = already attached; that's fine
+            if [ "$HTTP" != "409" ]; then
+              exit 1
+            fi
+            echo "Domain already attached — OK"
+          fi
+
+      - name: List attached domains
+        run: |
+          curl -sf -H "Authorization: Bearer $CF_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/pages/projects/$PROJECT/domains" \
+            | python3 -m json.tool | head -40
