@@ -15,33 +15,6 @@ jobs:
       DOMAIN:        admin.futuregadgetlabs.com
       PROJECT:       fg-collect-admin
     steps:
-      - name: Find zone ID for futuregadgetlabs.com
-        id: zone
-        run: |
-          RESP=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/zones?name=futuregadgetlabs.com")
-          echo "$RESP" | head -c 500
-          echo
-          ZID=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result'][0]['id']) if d.get('result') else exit(1)")
-          echo "zone_id=$ZID" >> $GITHUB_OUTPUT
-          echo "Zone: $ZID"
-
-      - name: List and delete admin DNS records
-        env:
-          ZID: ${{ steps.zone.outputs.zone_id }}
-        run: |
-          RESP=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/zones/$ZID/dns_records?name=$DOMAIN")
-          echo "Records found:"
-          echo "$RESP" | python3 -m json.tool | head -60
-          IDS=$(echo "$RESP" | python3 -c "import sys,json; [print(r['id']) for r in json.load(sys.stdin).get('result',[])]")
-          for ID in $IDS; do
-            echo "Deleting record $ID"
-            curl -s -X DELETE -H "Authorization: Bearer $CF_API_TOKEN" \
-              "https://api.cloudflare.com/client/v4/zones/$ZID/dns_records/$ID"
-            echo
-          done
-
       - name: Attach custom domain to Pages project
         run: |
           HTTP=$(curl -s -o /tmp/att.json -w "%{http_code}" \
@@ -60,4 +33,4 @@ jobs:
         run: |
           curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/pages/projects/$PROJECT/domains" \
-            | python3 -m json.tool | head -40
+            | python3 -m json.tool
