@@ -8,8 +8,17 @@ import { SetsPage } from "@/pages/SetsPage";
 import { SetDetailPage } from "@/pages/SetDetailPage";
 import { InventoryPage } from "@/pages/InventoryPage";
 import { InventoryNewPage } from "@/pages/InventoryNewPage";
+import { GradedInventoryPage } from "@/pages/GradedInventoryPage";
+import { GradedIntakePage } from "@/pages/GradedIntakePage";
+import { PricingRulesPage } from "@/pages/PricingRulesPage";
+import { BinsPage } from "@/pages/BinsPage";
+import { WhereIsPage } from "@/pages/WhereIsPage";
+import { AcquisitionsPage } from "@/pages/AcquisitionsPage";
 import { ListingsPage } from "@/pages/ListingsPage";
 import { OrdersPage } from "@/pages/OrdersPage";
+import { PortfolioGamesPage } from "@/pages/PortfolioGamesPage";
+import { PortfolioSetsPage } from "@/pages/PortfolioSetsPage";
+import { PortfolioSetCardsPage } from "@/pages/PortfolioSetCardsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -43,14 +52,24 @@ export function App() {
                 <RequireAuth>
                   <AppShell>
                     <Routes>
-                      <Route path="/" element={<Navigate to="/sets" replace />} />
+                      <Route path="/" element={<Navigate to="/portfolio" replace />} />
                       <Route path="/sets" element={<SetsPage />} />
                       <Route path="/sets/:id" element={<SetDetailPage />} />
                       <Route path="/inventory" element={<InventoryPage />} />
                       <Route path="/inventory/new" element={<InventoryNewPage />} />
+                      <Route path="/inventory/graded" element={<GradedInventoryPage />} />
+                      <Route path="/inventory/graded/new" element={<GradedIntakePage />} />
+                      <Route path="/pricing" element={<PricingRulesPage />} />
+                      <Route path="/bins" element={<BinsPage />} />
+                      <Route path="/where" element={<WhereIsPage />} />
+                      <Route path="/acquisitions" element={<AcquisitionsPage />} />
+                      <Route path="/acquisitions/:id" element={<AcquisitionsPage />} />
                       <Route path="/listings" element={<ListingsPage />} />
                       <Route path="/orders" element={<OrdersPage />} />
-                      <Route path="*" element={<Navigate to="/sets" replace />} />
+                      <Route path="/portfolio" element={<PortfolioGamesPage />} />
+                      <Route path="/portfolio/:game" element={<PortfolioSetsPage />} />
+                      <Route path="/portfolio/:game/:setId" element={<PortfolioSetCardsPage />} />
+                      <Route path="*" element={<Navigate to="/portfolio" replace />} />
                     </Routes>
                   </AppShell>
                 </RequireAuth>

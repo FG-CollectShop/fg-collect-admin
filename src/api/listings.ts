@@ -1,7 +1,7 @@
 import { fetchAPI } from "./client";
 import type { Game } from "./catalog";
 
-export type ListingType = "single" | "sealed";
+export type ListingType = "single" | "sealed" | "graded";
 
 export interface Listing {
   id: string;

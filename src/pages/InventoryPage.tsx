@@ -22,6 +22,7 @@ const types: { value: "" | ListingType; label: string }[] = [
   { value: "", label: "All" },
   { value: "single", label: "Singles" },
   { value: "sealed", label: "Sealed" },
+  { value: "graded", label: "Graded" },
 ];
 
 const PAGE_SIZE = 50;
@@ -207,7 +208,15 @@ function Row({
       <td className="px-3 py-2 text-gray-500">{listing.set_name ?? "—"}</td>
       <td className="px-3 py-2 text-gray-500">{listing.game}</td>
       <td className="px-3 py-2 text-gray-500">{listing.type}</td>
-      <td className="px-3 py-2 text-gray-500">{listing.location ?? "—"}</td>
+      <td className="px-3 py-2 text-gray-500">
+        {listing.location ?? "—"}
+        <Link
+          to={`/where?q=${encodeURIComponent(listing.name)}`}
+          className="block text-xs text-gray-400 hover:text-black underline"
+        >
+          where?
+        </Link>
+      </td>
       <td className="px-3 py-2 text-right font-mono">{listing.stock}</td>
       <td className="px-3 py-2 text-right font-mono">{fmtPrice(listing.price_cents)}</td>
       <td className="px-3 py-2 text-right">
