@@ -11,6 +11,35 @@ const GAME_LABELS: Record<string, string> = {
   yugioh:    "Yu-Gi-Oh",
 };
 
+// Canonical era order — most recent first. Unlisted series fall to the end.
+const ERA_ORDER = [
+  "Scarlet & Violet",
+  "Sword & Shield",
+  "Sun & Moon",
+  "XY",
+  "Black & White",
+  "HeartGold & SoulSilver",
+  "Platinum",
+  "Diamond & Pearl",
+];
+
+function groupBySeries(sets: SetSummary[]): [string, SetSummary[]][] {
+  const map = new Map<string, SetSummary[]>();
+  for (const s of sets) {
+    const key = s.series ?? "Other";
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(s);
+  }
+  return [...map.entries()].sort(([a], [b]) => {
+    const ai = ERA_ORDER.indexOf(a);
+    const bi = ERA_ORDER.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.localeCompare(b);
+  });
+}
+
 export function PortfolioSetsPage() {
   const { game = "" } = useParams<{ game: string }>();
   const gameLabel = GAME_LABELS[game] ?? game;
@@ -21,8 +50,13 @@ export function PortfolioSetsPage() {
     enabled: !!game,
   });
 
-  const owned = q.data?.filter((s) => s.owned_count > 0) ?? [];
-  const notOwned = q.data?.filter((s) => s.owned_count === 0) ?? [];
+  const hasSeries = q.data?.some((s) => s.series) ?? false;
+  const groups: [string, SetSummary[]][] = hasSeries
+    ? groupBySeries(q.data!)
+    : [["", q.data ?? []]];
+
+  const totalOwned = q.data?.filter((s) => s.owned_count > 0).length ?? 0;
+  const total = q.data?.length ?? 0;
 
   return (
     <div>
@@ -36,7 +70,7 @@ export function PortfolioSetsPage() {
         <h1 className="text-2xl font-bold tracking-tight">{gameLabel} — Sets</h1>
         {q.isSuccess && (
           <span className="text-sm text-gray-400">
-            {owned.length} / {q.data!.length} sets with cards
+            {totalOwned} / {total} sets with cards
           </span>
         )}
       </div>
@@ -49,36 +83,32 @@ export function PortfolioSetsPage() {
         </div>
       )}
 
-      {q.isSuccess && q.data.length === 0 && (
+      {q.isSuccess && total === 0 && (
         <div className="rounded-lg border-2 border-dashed border-gray-200 p-12 text-center text-gray-500">
           No sets found for {gameLabel}.
         </div>
       )}
 
-      {q.isSuccess && q.data.length > 0 && (
-        <>
-          {owned.length > 0 && (
-            <section className="mb-8">
-              <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">
-                In collection
-              </h2>
+      {q.isSuccess && total > 0 && (
+        <div className="space-y-8">
+          {groups.map(([series, sets]) => (
+            <section key={series || "all"}>
+              {series && (
+                <div className="flex items-baseline gap-3 mb-3">
+                  <h2 className="text-sm font-semibold uppercase tracking-widest text-gray-500">
+                    {series}
+                  </h2>
+                  <span className="text-xs text-gray-400">
+                    {sets.filter((s) => s.owned_count > 0).length}/{sets.length} sets
+                  </span>
+                </div>
+              )}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                {owned.map((s) => <SetCard key={s.id} set={s} game={game} />)}
+                {sets.map((s) => <SetCard key={s.id} set={s} game={game} />)}
               </div>
             </section>
-          )}
-
-          {notOwned.length > 0 && (
-            <section>
-              <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">
-                Not collected
-              </h2>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                {notOwned.map((s) => <SetCard key={s.id} set={s} game={game} />)}
-              </div>
-            </section>
-          )}
-        </>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -97,16 +127,16 @@ function SetCard({ set, game }: { set: SetSummary; game: string }) {
         hasCards ? "border-gray-300" : "border-gray-200 opacity-60 hover:opacity-100"
       }`}
     >
-      {/* Set image */}
-      <div className="bg-gray-100 h-28 flex items-center justify-center p-2">
+      {/* Set logo */}
+      <div className="bg-gray-50 h-24 flex items-center justify-center p-3">
         {set.image_url ? (
           <img
             src={set.image_url}
             alt={set.name}
-            className="max-h-full max-w-full object-contain"
+            className="max-h-full max-w-full object-contain drop-shadow-sm"
           />
         ) : (
-          <div className="text-2xl text-gray-300">🃏</div>
+          <div className="text-3xl text-gray-200">🃏</div>
         )}
       </div>
 

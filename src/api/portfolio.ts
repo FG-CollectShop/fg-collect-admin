@@ -11,6 +11,7 @@ export interface SetSummary {
   game: string;
   code: string;
   name: string;
+  series?: string;
   release_date?: string;
   card_count?: number;
   image_url?: string;
