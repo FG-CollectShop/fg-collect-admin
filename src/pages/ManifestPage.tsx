@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   listInventory, listPurchases, createPurchase, updatePurchase,
-  deletePurchase, recordSale, deleteSale,
+  deletePurchase, recordSale,
   InventoryItem, Purchase, ItemType, Platform,
-  formatCents, tcgImageURL, tcgProductURL,
+  formatCents,
 } from '../api/manifest';
 
 type Tab = 'inventory' | 'purchases';
