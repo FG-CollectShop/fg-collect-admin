@@ -19,6 +19,7 @@ import { OrdersPage } from "@/pages/OrdersPage";
 import { PortfolioGamesPage } from "@/pages/PortfolioGamesPage";
 import { PortfolioSetsPage } from "@/pages/PortfolioSetsPage";
 import { PortfolioSetCardsPage } from "@/pages/PortfolioSetCardsPage";
+import ManifestPage from "@/pages/ManifestPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -66,6 +67,7 @@ export function App() {
                       <Route path="/acquisitions/:id" element={<AcquisitionsPage />} />
                       <Route path="/listings" element={<ListingsPage />} />
                       <Route path="/orders" element={<OrdersPage />} />
+                      <Route path="/manifest" element={<ManifestPage />} />
                       <Route path="/portfolio" element={<PortfolioGamesPage />} />
                       <Route path="/portfolio/:game" element={<PortfolioSetsPage />} />
                       <Route path="/portfolio/:game/:setId" element={<PortfolioSetCardsPage />} />
