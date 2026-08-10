@@ -7,14 +7,8 @@ const nav: { to: string; label: string; end?: boolean }[] = [
   { to: "/manifest", label: "Manifest" },
   { to: "/portfolio", label: "Portfolio" },
   { to: "/sets", label: "Sets" },
-  // `end` so /inventory doesn't stay highlighted on /inventory/graded.
-  { to: "/inventory", label: "Inventory", end: true },
   { to: "/inventory/graded", label: "Graded" },
-  { to: "/where", label: "Where is…?" },
-  { to: "/bins", label: "Bins" },
-  { to: "/acquisitions", label: "Acquisitions" },
-  { to: "/pricing", label: "Pricing" },
-  { to: "/orders", label: "Orders" },
+  { to: "/where", label: "Storage" },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
