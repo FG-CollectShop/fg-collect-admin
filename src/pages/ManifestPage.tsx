@@ -272,13 +272,18 @@ function MarketPriceCell({ item, onUpdated }: { item: InventoryItem | Purchase; 
     }
   }
 
+  const [refreshErr, setRefreshErr] = useState<string | null>(null);
+
   async function handleRefresh() {
     setRefreshing(true);
+    setRefreshErr(null);
     try {
       await refreshPrice(item.id);
       onUpdated();
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Price refresh failed');
+      const msg = e instanceof Error && e.message ? e.message : 'Refresh unavailable';
+      setRefreshErr(msg);
+      setTimeout(() => setRefreshErr(null), 4000);
     } finally {
       setRefreshing(false);
     }
@@ -325,7 +330,8 @@ function MarketPriceCell({ item, onUpdated }: { item: InventoryItem | Purchase; 
           </button>
         )}
       </div>
-      {item.market_price_at && (
+      {refreshErr && <span className="text-xs text-red-500">{refreshErr}</span>}
+      {!refreshErr && item.market_price_at && (
         <span className={`text-xs ${isStale ? 'text-amber-500' : 'text-gray-400'}`}>
           {formatAge(item.market_price_at)}
         </span>
