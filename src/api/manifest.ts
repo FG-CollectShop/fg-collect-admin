@@ -121,6 +121,13 @@ export async function deleteSale(id: string): Promise<void> {
   await fetchAPI(`/api/v1/admin/sales/${id}`, { method: 'DELETE' });
 }
 
+export async function refreshPrice(purchaseId: string): Promise<{ market_price_cents: number }> {
+  return fetchAPI<{ market_price_cents: number }>(
+    `/api/v1/admin/purchases/${purchaseId}/refresh-price`,
+    { method: 'POST' }
+  );
+}
+
 export function tcgImageURL(productId: number): string {
   return `https://tcgplayer-cdn.tcgplayer.com/product/${productId}_in_1000x1000.jpg`;
 }
