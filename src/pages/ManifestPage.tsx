@@ -1,12 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  listInventory, listPurchases, listPlatforms, getManifestSummary,
+  listInventory, listPurchases, listPlatforms, getManifestSummary, getManifestAnalytics,
   createPurchase, updatePurchase, deletePurchase, recordSale, refreshPrice,
-  InventoryItem, Purchase, ManifestSummary, ItemType, Platform,
-  formatCents,
+  InventoryItem, Purchase, ManifestSummary, AnalyticsGroup, AnalyticsGroupBy,
+  ItemType, Platform, formatCents,
 } from '../api/manifest';
 
-type Tab = 'inventory' | 'purchases';
+type Tab = 'inventory' | 'purchases' | 'analytics';
+
+const GROUP_BY_OPTIONS: { value: AnalyticsGroupBy; label: string }[] = [
+  { value: 'item_type',         label: 'Item Type' },
+  { value: 'game',              label: 'Game' },
+  { value: 'set',               label: 'Set' },
+  { value: 'purchase_platform', label: 'Platform' },
+];
 
 const ITEM_TYPES: { value: ItemType; label: string }[] = [
   { value: 'sealed_display',  label: 'Sealed Display' },
@@ -608,6 +615,71 @@ function PurchasesTable({ items, onRefresh, platforms }: { items: Purchase[]; on
   );
 }
 
+// ── Analytics Table ───────────────────────────────────────────────────────────
+
+function AnalyticsTable({ groups }: { groups: AnalyticsGroup[] }) {
+  if (groups.length === 0) {
+    return <p className="text-gray-400 text-sm py-8 text-center">No data for this filter.</p>;
+  }
+
+  const totals = groups.reduce(
+    (acc, g) => ({
+      count: acc.count + g.count,
+      cost: acc.cost + g.cost_basis_cents,
+      market: acc.market + g.market_value_cents,
+      liq: acc.liq + g.liquidation_cents,
+    }),
+    { count: 0, cost: 0, market: 0, liq: 0 },
+  );
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200">
+            <th className="pb-2 pr-3 font-medium">Group</th>
+            <th className="pb-2 pr-3 font-medium text-right">Positions</th>
+            <th className="pb-2 pr-3 font-medium text-right">Cost Basis</th>
+            <th className="pb-2 pr-3 font-medium text-right">Market</th>
+            <th className="pb-2 pr-3 font-medium text-right">Liquidation</th>
+            <th className="pb-2 pr-3 font-medium text-right">% (Market)</th>
+            <th className="pb-2 pr-3 font-medium text-right">% (Liq)</th>
+            <th className="pb-2 pr-3 font-medium text-right">XIRR</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {groups.map(g => (
+            <tr key={g.key} className="hover:bg-gray-50">
+              <td className="py-3 pr-3 font-medium text-gray-900">{g.key.replace(/_/g, ' ')}</td>
+              <td className="py-3 pr-3 text-right text-gray-700">{g.count}</td>
+              <td className="py-3 pr-3 text-right text-gray-700">{formatCents(g.cost_basis_cents)}</td>
+              <td className="py-3 pr-3 text-right text-gray-800">{formatCents(g.market_value_cents)}</td>
+              <td className="py-3 pr-3 text-right font-medium text-amber-600">{formatCents(g.liquidation_cents)}</td>
+              <td className={`py-3 pr-3 text-right font-semibold ${g.gain_market_pct == null ? 'text-gray-300' : g.gain_market_pct >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                {g.gain_market_pct != null ? (g.gain_market_pct >= 0 ? '+' : '') + g.gain_market_pct.toFixed(1) + '%' : '—'}
+              </td>
+              <td className={`py-3 pr-3 text-right font-semibold ${g.gain_liq_pct == null ? 'text-gray-300' : g.gain_liq_pct >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                {g.gain_liq_pct != null ? (g.gain_liq_pct >= 0 ? '+' : '') + g.gain_liq_pct.toFixed(1) + '%' : '—'}
+              </td>
+              <td className={`py-3 pr-3 text-right font-semibold ${g.xirr == null ? 'text-gray-300' : g.xirr >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                {g.xirr != null ? (g.xirr >= 0 ? '+' : '') + (g.xirr * 100).toFixed(1) + '%' : '—'}
+              </td>
+            </tr>
+          ))}
+          <tr className="bg-gray-50 font-semibold border-t-2 border-gray-300">
+            <td className="py-3 pr-3 text-gray-900">Total</td>
+            <td className="py-3 pr-3 text-right text-gray-800">{totals.count}</td>
+            <td className="py-3 pr-3 text-right text-gray-900">{formatCents(totals.cost)}</td>
+            <td className="py-3 pr-3 text-right text-gray-900">{formatCents(totals.market)}</td>
+            <td className="py-3 pr-3 text-right text-amber-700">{formatCents(totals.liq)}</td>
+            <td colSpan={3} />
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function ManifestPage() {
@@ -617,6 +689,8 @@ export default function ManifestPage() {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [platforms, setPlatforms] = useState<string[]>(DEFAULT_PLATFORMS);
   const [summary, setSummary] = useState<ManifestSummary | null>(null);
+  const [analytics, setAnalytics] = useState<AnalyticsGroup[]>([]);
+  const [groupBy, setGroupBy] = useState<AnalyticsGroupBy>('item_type');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -626,15 +700,18 @@ export default function ManifestPage() {
     try {
       if (tab === 'inventory') {
         setInventory(await listInventory(game));
-      } else {
+      } else if (tab === 'purchases') {
         setPurchases(await listPurchases(game));
+      } else {
+        const resp = await getManifestAnalytics(groupBy, game || undefined);
+        setAnalytics(resp.groups);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
       setLoading(false);
     }
-  }, [tab, game]);
+  }, [tab, game, groupBy]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -726,20 +803,34 @@ export default function ManifestPage() {
       <AddPurchaseForm onAdded={load} platforms={platforms} />
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-4 mt-4 border-b border-gray-200">
-        {(['inventory', 'purchases'] as Tab[]).map(t => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === t
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {t === 'inventory' ? 'Inventory' : 'All Purchases'}
-          </button>
-        ))}
+      <div className="flex items-center justify-between mb-4 mt-4 border-b border-gray-200">
+        <div className="flex gap-1">
+          {(['inventory', 'purchases', 'analytics'] as Tab[]).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                tab === t
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {t === 'inventory' ? 'Inventory' : t === 'purchases' ? 'All Purchases' : 'Analytics'}
+            </button>
+          ))}
+        </div>
+        {tab === 'analytics' && (
+          <div className="flex items-center gap-2 pb-2">
+            <label className="text-xs text-gray-500">Group by</label>
+            <select
+              value={groupBy}
+              onChange={e => setGroupBy(e.target.value as AnalyticsGroupBy)}
+              className="border border-gray-300 rounded px-2 py-1 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              {GROUP_BY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Content */}
@@ -748,8 +839,10 @@ export default function ManifestPage() {
         <p className="text-gray-400 text-sm">Loading…</p>
       ) : tab === 'inventory' ? (
         <InventoryTable items={inventory} onRefresh={load} platforms={platforms} />
-      ) : (
+      ) : tab === 'purchases' ? (
         <PurchasesTable items={purchases} onRefresh={load} platforms={platforms} />
+      ) : (
+        <AnalyticsTable groups={analytics} />
       )}
     </div>
   );

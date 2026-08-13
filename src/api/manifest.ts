@@ -135,6 +135,34 @@ export async function getManifestSummary(game?: string): Promise<ManifestSummary
   return fetchAPI<ManifestSummary>(`/api/v1/admin/manifest/summary${params}`);
 }
 
+export type AnalyticsGroupBy = 'item_type' | 'game' | 'set' | 'purchase_platform';
+
+export interface AnalyticsGroup {
+  key: string;
+  count: number;
+  cost_basis_cents: number;
+  market_value_cents: number;
+  liquidation_cents: number;
+  gain_market_pct?: number;
+  gain_liq_pct?: number;
+  xirr?: number;
+  cash_flow_count: number;
+}
+
+export interface AnalyticsResponse {
+  group_by: AnalyticsGroupBy;
+  groups: AnalyticsGroup[];
+}
+
+export async function getManifestAnalytics(
+  groupBy: AnalyticsGroupBy,
+  game?: string,
+): Promise<AnalyticsResponse> {
+  const params = new URLSearchParams({ group_by: groupBy });
+  if (game) params.set('game', game);
+  return fetchAPI<AnalyticsResponse>(`/api/v1/admin/manifest/analytics?${params}`);
+}
+
 export async function listPlatforms(): Promise<string[]> {
   const data = await fetchAPI<{ platforms: string[] }>('/api/v1/admin/purchases/platforms');
   return data.platforms;
