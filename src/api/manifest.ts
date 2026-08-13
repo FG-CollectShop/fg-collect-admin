@@ -11,7 +11,7 @@ export type ItemType =
   | 'graded'
   | 'other';
 
-export type Platform = 'tcgplayer' | 'ebay' | 'lgs' | 'amazon' | 'facebook' | 'local' | 'other';
+export type Platform = string;
 
 export interface Purchase {
   id: string;
@@ -40,6 +40,7 @@ export interface InventoryItem extends Purchase {
   quantity_on_hand: number;
   liquidation_cents?: number; // market * 0.85
   pl_cents?: number;          // market - cost_basis per unit
+  xirr?: number;              // annualised return; null if <30d or no market price
 }
 
 export interface Sale {
@@ -119,6 +120,24 @@ export async function recordSale(purchaseId: string, req: RecordSaleReq): Promis
 
 export async function deleteSale(id: string): Promise<void> {
   await fetchAPI(`/api/v1/admin/sales/${id}`, { method: 'DELETE' });
+}
+
+export interface ManifestSummary {
+  cost_basis_cents: number;
+  market_value_cents: number;
+  liquidation_cents: number;
+  portfolio_xirr: number | null;
+  cash_flow_count: number;
+}
+
+export async function getManifestSummary(game?: string): Promise<ManifestSummary> {
+  const params = game ? `?game=${game}` : '';
+  return fetchAPI<ManifestSummary>(`/api/v1/admin/manifest/summary${params}`);
+}
+
+export async function listPlatforms(): Promise<string[]> {
+  const data = await fetchAPI<{ platforms: string[] }>('/api/v1/admin/purchases/platforms');
+  return data.platforms;
 }
 
 export async function refreshPrice(purchaseId: string): Promise<{ market_price_cents: number }> {

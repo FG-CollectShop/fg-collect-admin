@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  listInventory, listPurchases, createPurchase, updatePurchase,
-  deletePurchase, recordSale, refreshPrice,
-  InventoryItem, Purchase, ItemType, Platform,
+  listInventory, listPurchases, listPlatforms, getManifestSummary,
+  createPurchase, updatePurchase, deletePurchase, recordSale, refreshPrice,
+  InventoryItem, Purchase, ManifestSummary, ItemType, Platform,
   formatCents,
 } from '../api/manifest';
 
@@ -20,7 +20,7 @@ const ITEM_TYPES: { value: ItemType; label: string }[] = [
   { value: 'other',           label: 'Other' },
 ];
 
-const PLATFORMS: Platform[] = ['tcgplayer', 'ebay', 'lgs', 'amazon', 'facebook', 'local', 'other'];
+const DEFAULT_PLATFORMS = ['tcgplayer', 'ebay', 'lgs', 'amazon', 'facebook', 'local', 'other'];
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -40,7 +40,7 @@ function formatAge(isoStr: string): string {
 
 // ── Add Purchase Form ─────────────────────────────────────────────────────────
 
-function AddPurchaseForm({ onAdded }: { onAdded: () => void }) {
+function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platforms: string[] }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
@@ -123,10 +123,16 @@ function AddPurchaseForm({ onAdded }: { onAdded: () => void }) {
         </div>
         <div>
           <label className={labelCls}>Platform</label>
-          <select value={form.purchase_platform} onChange={set('purchase_platform')} className={inputCls}>
-            <option value="">—</option>
-            {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
+          <input
+            list="platform-suggestions"
+            value={form.purchase_platform}
+            onChange={set('purchase_platform')}
+            placeholder="e.g. tcgplayer"
+            className={inputCls}
+          />
+          <datalist id="platform-suggestions">
+            {platforms.map(p => <option key={p} value={p} />)}
+          </datalist>
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
@@ -175,10 +181,12 @@ function RecordSaleModal({
   purchase,
   onClose,
   onSaved,
+  platforms,
 }: {
   purchase: Purchase | InventoryItem;
   onClose: () => void;
   onSaved: () => void;
+  platforms: string[];
 }) {
   const [saving, setSaving] = useState(false);
   const available = 'quantity_on_hand' in purchase ? purchase.quantity_on_hand : purchase.quantity;
@@ -234,10 +242,16 @@ function RecordSaleModal({
           </div>
           <div>
             <label className={labelCls}>Platform</label>
-            <select value={form.sale_platform} onChange={set('sale_platform')} className={inputCls}>
-              <option value="">—</option>
-              {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
+            <input
+              list="sale-platform-suggestions"
+              value={form.sale_platform}
+              onChange={set('sale_platform')}
+              placeholder="e.g. ebay"
+              className={inputCls}
+            />
+            <datalist id="sale-platform-suggestions">
+              {platforms.map(p => <option key={p} value={p} />)}
+            </datalist>
           </div>
         </div>
         <div className="flex gap-2">
@@ -340,9 +354,62 @@ function MarketPriceCell({ item, onUpdated }: { item: InventoryItem | Purchase; 
   );
 }
 
+// ── Platform Cell ─────────────────────────────────────────────────────────────
+
+function PlatformCell({ item, platforms, onUpdated }: {
+  item: Purchase | InventoryItem;
+  platforms: string[];
+  onUpdated: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(item.purchase_platform ?? '');
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await updatePurchase(item.id, { purchase_platform: val || undefined });
+      setEditing(false);
+      onUpdated();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1">
+        <input
+          autoFocus
+          list="platform-cell-suggestions"
+          value={val}
+          onChange={e => setVal(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { setVal(item.purchase_platform ?? ''); setEditing(false); } }}
+          onBlur={save}
+          placeholder="platform"
+          className="w-28 border border-blue-400 rounded px-1 py-0.5 text-xs text-gray-900"
+        />
+        <datalist id="platform-cell-suggestions">
+          {platforms.map(p => <option key={p} value={p} />)}
+        </datalist>
+        {saving && <span className="text-xs text-gray-400">…</span>}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className="text-xs text-left hover:text-blue-600 transition-colors text-gray-500"
+    >
+      {item.purchase_platform ?? <span className="text-gray-300">—</span>}
+    </button>
+  );
+}
+
 // ── Inventory Table ───────────────────────────────────────────────────────────
 
-function InventoryTable({ items, onRefresh }: { items: InventoryItem[]; onRefresh: () => void }) {
+function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[]; onRefresh: () => void; platforms: string[] }) {
   const [selling, setSelling] = useState<InventoryItem | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
@@ -366,7 +433,7 @@ function InventoryTable({ items, onRefresh }: { items: InventoryItem[]; onRefres
   return (
     <>
       {selling && (
-        <RecordSaleModal purchase={selling} onClose={() => setSelling(null)} onSaved={onRefresh} />
+        <RecordSaleModal purchase={selling} onClose={() => setSelling(null)} onSaved={onRefresh} platforms={platforms} />
       )}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -377,13 +444,21 @@ function InventoryTable({ items, onRefresh }: { items: InventoryItem[]; onRefres
               <th className="pb-2 pr-3 font-medium text-right">Cost Basis</th>
               <th className="pb-2 pr-3 font-medium text-right">Market</th>
               <th className="pb-2 pr-3 font-medium text-right">Liquidation</th>
-              <th className="pb-2 pr-3 font-medium text-right">P&amp;L</th>
+              <th className="pb-2 pr-3 font-medium text-right">% (Market)</th>
+              <th className="pb-2 pr-3 font-medium text-right">% (Liq)</th>
+              <th className="pb-2 pr-3 font-medium text-right">XIRR</th>
+              <th className="pb-2 pr-3 font-medium">Platform</th>
               <th className="pb-2 font-medium">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {items.map(item => {
-              const plColor = item.pl_cents == null ? 'text-gray-400' : item.pl_cents >= 0 ? 'text-green-600' : 'text-red-500';
+              const mktPct = item.market_price_cents != null && item.unit_cost_basis_cents > 0
+                ? (item.market_price_cents - item.unit_cost_basis_cents) / item.unit_cost_basis_cents * 100
+                : null;
+              const liqPct = item.liquidation_cents != null && item.unit_cost_basis_cents > 0
+                ? (item.liquidation_cents - item.unit_cost_basis_cents) / item.unit_cost_basis_cents * 100
+                : null;
               return (
                 <tr key={item.id} className="hover:bg-gray-50">
                   <td className="py-3 pr-3">
@@ -403,7 +478,6 @@ function InventoryTable({ items, onRefresh }: { items: InventoryItem[]; onRefres
                         </div>
                         <div className="text-xs text-gray-500 mt-0.5">
                           {item.set_name ?? item.game} · {item.item_type.replace(/_/g, ' ')}
-                          {item.purchase_platform && <span className="ml-1 text-gray-400">· {item.purchase_platform}</span>}
                         </div>
                       </div>
                     </div>
@@ -419,8 +493,17 @@ function InventoryTable({ items, onRefresh }: { items: InventoryItem[]; onRefres
                   <td className="py-3 pr-3 text-right font-medium text-amber-600">
                     {item.liquidation_cents != null ? formatCents(item.liquidation_cents) : <span className="text-gray-300">—</span>}
                   </td>
-                  <td className={`py-3 pr-3 text-right font-semibold ${plColor}`}>
-                    {item.pl_cents != null ? (item.pl_cents >= 0 ? '+' : '') + formatCents(item.pl_cents) : '—'}
+                  <td className={`py-3 pr-3 text-right font-semibold text-sm ${mktPct == null ? 'text-gray-300' : mktPct >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    {mktPct != null ? (mktPct >= 0 ? '+' : '') + mktPct.toFixed(1) + '%' : '—'}
+                  </td>
+                  <td className={`py-3 pr-3 text-right font-semibold text-sm ${liqPct == null ? 'text-gray-300' : liqPct >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    {liqPct != null ? (liqPct >= 0 ? '+' : '') + liqPct.toFixed(1) + '%' : '—'}
+                  </td>
+                  <td className={`py-3 pr-3 text-right text-sm font-medium ${item.xirr == null ? 'text-gray-300' : item.xirr >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                    {item.xirr != null ? (item.xirr >= 0 ? '+' : '') + (item.xirr * 100).toFixed(1) + '%' : '—'}
+                  </td>
+                  <td className="py-3 pr-3">
+                    <PlatformCell item={item} platforms={platforms} onUpdated={onRefresh} />
                   </td>
                   <td className="py-3">
                     <div className="flex gap-2 items-center">
@@ -451,7 +534,7 @@ function InventoryTable({ items, onRefresh }: { items: InventoryItem[]; onRefres
 
 // ── Purchases Table ───────────────────────────────────────────────────────────
 
-function PurchasesTable({ items, onRefresh }: { items: Purchase[]; onRefresh: () => void }) {
+function PurchasesTable({ items, onRefresh, platforms }: { items: Purchase[]; onRefresh: () => void; platforms: string[] }) {
   const [deleting, setDeleting] = useState<string | null>(null);
 
   async function handleDelete(id: string) {
@@ -505,7 +588,9 @@ function PurchasesTable({ items, onRefresh }: { items: Purchase[]; onRefresh: ()
               <td className="py-3 pr-3 text-right text-gray-600">{formatCents(item.unit_cost_basis_cents)}</td>
               <td className="py-3 pr-3 text-right font-medium text-gray-800">{formatCents(item.unit_cost_basis_cents * item.quantity)}</td>
               <td className="py-3 pr-3 text-gray-600">{item.purchased_at}</td>
-              <td className="py-3 pr-3 text-gray-500 text-xs">{item.purchase_platform ?? '—'}</td>
+              <td className="py-3 pr-3">
+                <PlatformCell item={item} platforms={platforms} onUpdated={onRefresh} />
+              </td>
               <td className="py-3">
                 <button
                   onClick={() => handleDelete(item.id)}
@@ -527,9 +612,11 @@ function PurchasesTable({ items, onRefresh }: { items: Purchase[]; onRefresh: ()
 
 export default function ManifestPage() {
   const [tab, setTab] = useState<Tab>('inventory');
-  const [game, setGame] = useState('mtg');
+  const [game, setGame] = useState('');
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [platforms, setPlatforms] = useState<string[]>(DEFAULT_PLATFORMS);
+  const [summary, setSummary] = useState<ManifestSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -551,11 +638,27 @@ export default function ManifestPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    listPlatforms().then(p => {
+      if (p.length > 0) setPlatforms(p);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    getManifestSummary(game || undefined).then(setSummary).catch(() => setSummary(null));
+  }, [game]);
+
   const totalCost = inventory.reduce((s, i) => s + i.unit_cost_basis_cents * i.quantity_on_hand, 0);
   const totalMarket = inventory.reduce((s, i) => s + (i.market_price_cents ?? 0) * i.quantity_on_hand, 0);
   const totalLiquidation = inventory.reduce((s, i) => s + (i.liquidation_cents ?? 0) * i.quantity_on_hand, 0);
   const hasMarket = inventory.some(i => i.market_price_cents != null);
-  const totalPL = hasMarket ? totalMarket - totalCost : null;
+  const mktPct = hasMarket && totalCost > 0 ? (totalMarket - totalCost) / totalCost * 100 : null;
+  const liqPct = hasMarket && totalCost > 0 ? (totalLiquidation - totalCost) / totalCost * 100 : null;
+
+  function fmtPct(v: number | null) {
+    if (v == null) return null;
+    return (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+  }
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -570,10 +673,10 @@ export default function ManifestPage() {
           onChange={e => setGame(e.target.value)}
           className="border border-gray-300 rounded px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
         >
+          <option value="">All games</option>
           <option value="mtg">MTG</option>
           <option value="pokemon">Pokémon</option>
           <option value="weiss">Weiss</option>
-          <option value="">All games</option>
         </select>
       </div>
 
@@ -589,24 +692,38 @@ export default function ManifestPage() {
             <div className={`text-lg font-bold ${hasMarket ? 'text-gray-900' : 'text-gray-300'}`}>
               {hasMarket ? formatCents(totalMarket) : '—'}
             </div>
+            {mktPct != null && (
+              <div className={`text-xs font-medium mt-0.5 ${mktPct >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                {fmtPct(mktPct)}
+              </div>
+            )}
           </div>
           <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
             <div className="text-xs text-gray-500 mb-1">Liquidation <span className="text-gray-400">(85%)</span></div>
             <div className={`text-lg font-bold ${hasMarket ? 'text-amber-600' : 'text-gray-300'}`}>
               {hasMarket ? formatCents(totalLiquidation) : '—'}
             </div>
+            {liqPct != null && (
+              <div className={`text-xs font-medium mt-0.5 ${liqPct >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                {fmtPct(liqPct)}
+              </div>
+            )}
           </div>
           <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
-            <div className="text-xs text-gray-500 mb-1">Unrealized P&amp;L</div>
-            <div className={`text-lg font-bold ${totalPL == null ? 'text-gray-300' : totalPL >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-              {totalPL != null ? (totalPL >= 0 ? '+' : '') + formatCents(totalPL) : '—'}
-            </div>
+            <div className="text-xs text-gray-500 mb-1">Portfolio XIRR</div>
+            {summary?.portfolio_xirr != null ? (
+              <div className={`text-lg font-bold ${summary.portfolio_xirr >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                {(summary.portfolio_xirr >= 0 ? '+' : '') + (summary.portfolio_xirr * 100).toFixed(1) + '%'}
+              </div>
+            ) : (
+              <div className="text-lg font-bold text-gray-300">—</div>
+            )}
           </div>
         </div>
       )}
 
       {/* Add purchase */}
-      <AddPurchaseForm onAdded={load} />
+      <AddPurchaseForm onAdded={load} platforms={platforms} />
 
       {/* Tabs */}
       <div className="flex gap-1 mb-4 mt-4 border-b border-gray-200">
@@ -630,9 +747,9 @@ export default function ManifestPage() {
       {loading ? (
         <p className="text-gray-400 text-sm">Loading…</p>
       ) : tab === 'inventory' ? (
-        <InventoryTable items={inventory} onRefresh={load} />
+        <InventoryTable items={inventory} onRefresh={load} platforms={platforms} />
       ) : (
-        <PurchasesTable items={purchases} onRefresh={load} />
+        <PurchasesTable items={purchases} onRefresh={load} platforms={platforms} />
       )}
     </div>
   );
