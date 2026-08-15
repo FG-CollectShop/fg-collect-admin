@@ -3,7 +3,7 @@ import {
   listInventory, listPurchases, listPlatforms, getManifestSummary, getManifestAnalytics,
   createPurchase, updatePurchase, deletePurchase, recordSale, refreshPrice, putSKUNote,
   lookupTCGProduct,
-  InventoryItem, Purchase, ManifestSummary, AnalyticsGroup, AnalyticsGroupBy,
+  InventoryItem, Purchase, ManifestSummary, AnalyticsGroup, AnalyticsGroupBy, InventoryGroup,
   ItemType, Platform, formatCents,
 } from '../api/manifest';
 
@@ -721,6 +721,11 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
                         </div>
                         <div className="text-xs text-gray-500 mt-0.5">
                           {item.set_name ?? item.game} · {item.item_type.replace(/_/g, ' ')}
+                          {item.lot_count && item.lot_count > 1 && (
+                            <span className="ml-1.5 inline-block px-1.5 py-0 rounded bg-blue-100 text-blue-700 text-[10px] font-medium">
+                              {item.lot_count} lots
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -746,12 +751,24 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
                     {item.xirr != null ? (item.xirr >= 0 ? '+' : '') + (item.xirr * 100).toFixed(1) + '%' : '—'}
                   </td>
                   <td className="py-3 pr-3">
-                    <PlatformCell item={item} platforms={platforms} onUpdated={onRefresh} />
+                    {item.lot_count && item.lot_count > 1 && item.platforms ? (
+                      <span className="text-xs text-gray-600" title={item.platforms.join(', ')}>
+                        {item.platforms.slice(0, 2).join(', ')}
+                        {item.platforms.length > 2 && ` +${item.platforms.length - 2}`}
+                      </span>
+                    ) : (
+                      <PlatformCell item={item} platforms={platforms} onUpdated={onRefresh} />
+                    )}
                   </td>
                   <td className="py-3 pr-3">
                     <SKUNoteCell item={item} onUpdated={onRefresh} />
                   </td>
                   <td className="py-3">
+                    {item.lot_count && item.lot_count > 1 ? (
+                      <span className="text-xs text-gray-400 italic" title="Switch to By Lot to edit/sell specific acquisitions">
+                        rolled up
+                      </span>
+                    ) : (
                     <div className="flex gap-2 items-center">
                       <button
                         onClick={() => setEditing(item)}
@@ -773,6 +790,7 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
                         Del
                       </button>
                     </div>
+                    )}
                   </td>
                 </tr>
               );
@@ -950,6 +968,7 @@ export default function ManifestPage() {
   const [summary, setSummary] = useState<ManifestSummary | null>(null);
   const [analytics, setAnalytics] = useState<AnalyticsGroup[]>([]);
   const [groupBy, setGroupBy] = useState<AnalyticsGroupBy>('item_type');
+  const [inventoryGroup, setInventoryGroup] = useState<InventoryGroup>('sku');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -958,7 +977,7 @@ export default function ManifestPage() {
     setError(null);
     try {
       if (tab === 'inventory') {
-        setInventory(await listInventory(game));
+        setInventory(await listInventory(game, inventoryGroup));
       } else if (tab === 'purchases') {
         setPurchases(await listPurchases(game));
       } else {
@@ -970,7 +989,7 @@ export default function ManifestPage() {
     } finally {
       setLoading(false);
     }
-  }, [tab, game, groupBy]);
+  }, [tab, game, groupBy, inventoryGroup]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -1076,6 +1095,19 @@ export default function ManifestPage() {
             </button>
           ))}
         </div>
+        {tab === 'inventory' && (
+          <div className="flex items-center gap-2 pb-2">
+            <label className="text-xs text-gray-500">Group</label>
+            <select
+              value={inventoryGroup}
+              onChange={e => setInventoryGroup(e.target.value as InventoryGroup)}
+              className="border border-gray-300 rounded px-2 py-1 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="sku">By SKU (rolled up)</option>
+              <option value="lot">By Lot (per purchase)</option>
+            </select>
+          </div>
+        )}
         {tab === 'analytics' && (
           <div className="flex items-center gap-2 pb-2">
             <label className="text-xs text-gray-500">Group by</label>

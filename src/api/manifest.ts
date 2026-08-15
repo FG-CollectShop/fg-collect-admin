@@ -42,7 +42,13 @@ export interface InventoryItem extends Purchase {
   pl_cents?: number;          // market - cost_basis per unit
   xirr?: number;              // annualised return; null if <30d or no market price
   sku_note?: string;          // shared note across purchases of same tcgplayer_product_id
+  // Populated in SKU-rollup mode:
+  lot_count?: number;         // number of lots rolled up
+  platforms?: string[];       // distinct platforms across lots
+  lot_ids?: string[];         // underlying purchase.id values
 }
+
+export type InventoryGroup = 'sku' | 'lot';
 
 export interface Sale {
   id: string;
@@ -85,9 +91,10 @@ export async function listPurchases(game?: string): Promise<Purchase[]> {
   return data.purchases;
 }
 
-export async function listInventory(game?: string): Promise<InventoryItem[]> {
-  const params = game ? `?game=${game}` : '';
-  const data = await fetchAPI<{ inventory: InventoryItem[] }>(`/api/v1/admin/inventory${params}`);
+export async function listInventory(game?: string, group: InventoryGroup = 'sku'): Promise<InventoryItem[]> {
+  const params = new URLSearchParams({ group });
+  if (game) params.set('game', game);
+  const data = await fetchAPI<{ inventory: InventoryItem[] }>(`/api/v1/admin/inventory?${params}`);
   return data.inventory;
 }
 
