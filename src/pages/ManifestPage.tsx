@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   listInventory, listPurchases, listPlatforms, getManifestSummary, getManifestAnalytics,
-  createPurchase, updatePurchase, deletePurchase, recordSale, refreshPrice,
+  createPurchase, updatePurchase, deletePurchase, recordSale, refreshPrice, putSKUNote,
   InventoryItem, Purchase, ManifestSummary, AnalyticsGroup, AnalyticsGroupBy,
   ItemType, Platform, formatCents,
 } from '../api/manifest';
@@ -414,10 +414,171 @@ function PlatformCell({ item, platforms, onUpdated }: {
   );
 }
 
+// ── Edit Purchase Modal ───────────────────────────────────────────────────────
+
+function EditPurchaseModal({
+  purchase,
+  platforms,
+  onClose,
+  onSaved,
+}: {
+  purchase: Purchase | InventoryItem;
+  platforms: string[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    name: purchase.name,
+    item_type: purchase.item_type,
+    tcgplayer_product_id: purchase.tcgplayer_product_id ? String(purchase.tcgplayer_product_id) : '',
+    quantity: String(purchase.quantity),
+    unit_cost_basis_cents: (purchase.unit_cost_basis_cents / 100).toFixed(2),
+    purchased_at: purchase.purchased_at,
+    purchase_platform: purchase.purchase_platform ?? '',
+    notes: purchase.notes ?? '',
+  });
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }));
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await updatePurchase(purchase.id, {
+        name: form.name,
+        item_type: form.item_type as ItemType,
+        tcgplayer_product_id: form.tcgplayer_product_id ? parseInt(form.tcgplayer_product_id) : undefined,
+        quantity: parseInt(form.quantity) || 1,
+        unit_cost_basis_cents: cents(form.unit_cost_basis_cents),
+        purchased_at: form.purchased_at,
+        purchase_platform: form.purchase_platform || undefined,
+        notes: form.notes || undefined,
+      });
+      onSaved();
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputCls = "w-full border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500";
+  const labelCls = "block text-xs font-medium text-gray-600 mb-1";
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <form onSubmit={submit} className="bg-white border border-gray-200 rounded-lg shadow-lg p-5 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <h3 className="text-sm font-semibold text-gray-800 mb-4">Edit Purchase</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+          <div className="md:col-span-2">
+            <label className={labelCls}>Name *</label>
+            <input required value={form.name} onChange={set('name')} className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>Type</label>
+            <select value={form.item_type} onChange={set('item_type')} className={inputCls}>
+              {ITEM_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>TCGPlayer Product ID</label>
+            <input type="number" value={form.tcgplayer_product_id} onChange={set('tcgplayer_product_id')} className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>Qty *</label>
+            <input required type="number" min="1" value={form.quantity} onChange={set('quantity')} className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>Cost Basis / unit *</label>
+            <input required type="number" step="0.01" min="0" value={form.unit_cost_basis_cents} onChange={set('unit_cost_basis_cents')} className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>Purchase Date</label>
+            <input type="date" value={form.purchased_at} onChange={set('purchased_at')} className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>Platform</label>
+            <input list="edit-platform-suggestions" value={form.purchase_platform} onChange={set('purchase_platform')} className={inputCls} />
+            <datalist id="edit-platform-suggestions">
+              {platforms.map(p => <option key={p} value={p} />)}
+            </datalist>
+          </div>
+          <div className="md:col-span-2">
+            <label className={labelCls}>Purchase Notes</label>
+            <textarea value={form.notes} onChange={set('notes')} rows={3} className={inputCls} placeholder="Free-text — anything about this specific purchase (seller, condition, receipt #, etc.)" />
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button type="submit" disabled={saving} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-1.5 rounded text-sm font-medium">
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          <button type="button" onClick={onClose} className="text-gray-500 hover:text-gray-700 px-4 py-1.5 text-sm">
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ── SKU Note Cell (shared across purchases of same product_id) ───────────────
+
+function SKUNoteCell({ item, onUpdated }: { item: InventoryItem; onUpdated: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(item.sku_note ?? '');
+  const [saving, setSaving] = useState(false);
+
+  if (item.tcgplayer_product_id == null) {
+    return <span className="text-xs text-gray-300">—</span>;
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      await putSKUNote(item.tcgplayer_product_id!, val);
+      setEditing(false);
+      onUpdated();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="flex flex-col gap-1">
+        <textarea
+          autoFocus
+          value={val}
+          onChange={e => setVal(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Escape') { setVal(item.sku_note ?? ''); setEditing(false); } }}
+          rows={2}
+          className="w-full border border-blue-400 rounded px-1 py-0.5 text-xs text-gray-900"
+          placeholder="SKU note (shared across purchases)"
+        />
+        <div className="flex gap-1">
+          <button onClick={save} disabled={saving} className="text-green-600 hover:text-green-700 text-xs font-bold">{saving ? '…' : '✓'}</button>
+          <button onClick={() => { setVal(item.sku_note ?? ''); setEditing(false); }} className="text-gray-400 hover:text-gray-600 text-xs">✕</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className="text-xs text-left hover:text-blue-600 transition-colors text-gray-600 max-w-[180px] whitespace-normal"
+    >
+      {item.sku_note || <span className="text-gray-300">+ add note</span>}
+    </button>
+  );
+}
+
 // ── Inventory Table ───────────────────────────────────────────────────────────
 
 function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[]; onRefresh: () => void; platforms: string[] }) {
   const [selling, setSelling] = useState<InventoryItem | null>(null);
+  const [editing, setEditing] = useState<InventoryItem | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
   async function handleDelete(id: string) {
@@ -442,6 +603,9 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
       {selling && (
         <RecordSaleModal purchase={selling} onClose={() => setSelling(null)} onSaved={onRefresh} platforms={platforms} />
       )}
+      {editing && (
+        <EditPurchaseModal purchase={editing} platforms={platforms} onClose={() => setEditing(null)} onSaved={onRefresh} />
+      )}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -455,6 +619,7 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
               <th className="pb-2 pr-3 font-medium text-right">% (Liq)</th>
               <th className="pb-2 pr-3 font-medium text-right">XIRR</th>
               <th className="pb-2 pr-3 font-medium">Platform</th>
+              <th className="pb-2 pr-3 font-medium">SKU Note</th>
               <th className="pb-2 font-medium">Actions</th>
             </tr>
           </thead>
@@ -512,8 +677,17 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
                   <td className="py-3 pr-3">
                     <PlatformCell item={item} platforms={platforms} onUpdated={onRefresh} />
                   </td>
+                  <td className="py-3 pr-3">
+                    <SKUNoteCell item={item} onUpdated={onRefresh} />
+                  </td>
                   <td className="py-3">
                     <div className="flex gap-2 items-center">
+                      <button
+                        onClick={() => setEditing(item)}
+                        className="text-xs text-gray-600 hover:text-gray-900 border border-gray-200 hover:border-gray-400 px-2 py-0.5 rounded"
+                      >
+                        Edit
+                      </button>
                       <button
                         onClick={() => setSelling(item)}
                         className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 px-2 py-0.5 rounded"
@@ -542,6 +716,7 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
 // ── Purchases Table ───────────────────────────────────────────────────────────
 
 function PurchasesTable({ items, onRefresh, platforms }: { items: Purchase[]; onRefresh: () => void; platforms: string[] }) {
+  const [editing, setEditing] = useState<Purchase | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
   async function handleDelete(id: string) {
@@ -562,6 +737,10 @@ function PurchasesTable({ items, onRefresh, platforms }: { items: Purchase[]; on
   }
 
   return (
+    <>
+      {editing && (
+        <EditPurchaseModal purchase={editing} platforms={platforms} onClose={() => setEditing(null)} onSaved={onRefresh} />
+      )}
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
@@ -599,19 +778,28 @@ function PurchasesTable({ items, onRefresh, platforms }: { items: Purchase[]; on
                 <PlatformCell item={item} platforms={platforms} onUpdated={onRefresh} />
               </td>
               <td className="py-3">
-                <button
-                  onClick={() => handleDelete(item.id)}
-                  disabled={deleting === item.id}
-                  className="text-xs text-red-400 hover:text-red-600 disabled:opacity-50"
-                >
-                  Del
-                </button>
+                <div className="flex gap-2 items-center">
+                  <button
+                    onClick={() => setEditing(item)}
+                    className="text-xs text-gray-600 hover:text-gray-900 border border-gray-200 hover:border-gray-400 px-2 py-0.5 rounded"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDelete(item.id)}
+                    disabled={deleting === item.id}
+                    className="text-xs text-red-400 hover:text-red-600 disabled:opacity-50"
+                  >
+                    Del
+                  </button>
+                </div>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 

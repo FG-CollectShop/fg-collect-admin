@@ -41,6 +41,7 @@ export interface InventoryItem extends Purchase {
   liquidation_cents?: number; // market * 0.85
   pl_cents?: number;          // market - cost_basis per unit
   xirr?: number;              // annualised return; null if <30d or no market price
+  sku_note?: string;          // shared note across purchases of same tcgplayer_product_id
 }
 
 export interface Sale {
@@ -161,6 +162,18 @@ export async function getManifestAnalytics(
   const params = new URLSearchParams({ group_by: groupBy });
   if (game) params.set('game', game);
   return fetchAPI<AnalyticsResponse>(`/api/v1/admin/manifest/analytics?${params}`);
+}
+
+export async function getSKUNote(productId: number): Promise<string | null> {
+  const data = await fetchAPI<{ note: string | null }>(`/api/v1/admin/skus/${productId}/note`);
+  return data.note;
+}
+
+export async function putSKUNote(productId: number, note: string): Promise<void> {
+  await fetchAPI(`/api/v1/admin/skus/${productId}/note`, {
+    method: 'PUT',
+    body: JSON.stringify({ note }),
+  });
 }
 
 export async function listPlatforms(): Promise<string[]> {
