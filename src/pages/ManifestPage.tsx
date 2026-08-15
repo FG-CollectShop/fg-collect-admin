@@ -29,6 +29,18 @@ const ITEM_TYPES: { value: ItemType; label: string }[] = [
 
 const DEFAULT_PLATFORMS = ['tcgplayer', 'ebay', 'lgs', 'amazon', 'facebook', 'local', 'other'];
 
+const GAMES: { value: string; label: string }[] = [
+  { value: 'mtg',       label: 'MTG' },
+  { value: 'pokemon',   label: 'Pokémon' },
+  { value: 'weiss',     label: 'Weiss' },
+  { value: 'lorcana',   label: 'Lorcana' },
+  { value: 'one_piece', label: 'One Piece' },
+  { value: 'yugioh',    label: 'Yu-Gi-Oh!' },
+  { value: 'riftbound', label: 'Riftbound' },
+  { value: 'gundam',    label: 'Gundam' },
+  { value: 'other',     label: 'Other' },
+];
+
 const today = () => new Date().toISOString().slice(0, 10);
 
 function cents(val: string): number {
@@ -112,10 +124,7 @@ function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platform
         <div>
           <label className={labelCls}>Game</label>
           <select value={form.game} onChange={set('game')} className={inputCls}>
-            <option value="mtg">MTG</option>
-            <option value="pokemon">Pokémon</option>
-            <option value="weiss">Weiss</option>
-            <option value="other">Other</option>
+            {GAMES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
           </select>
         </div>
         <div>
@@ -939,9 +948,7 @@ export default function ManifestPage() {
           className="border border-gray-300 rounded px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
         >
           <option value="">All games</option>
-          <option value="mtg">MTG</option>
-          <option value="pokemon">Pokémon</option>
-          <option value="weiss">Weiss</option>
+          {GAMES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
         </select>
       </div>
 
