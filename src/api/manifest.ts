@@ -183,6 +183,36 @@ export async function putSKUNote(productId: number, note: string): Promise<void>
   });
 }
 
+export interface SKUHistoryPoint {
+  snapshot_date: string;      // YYYY-MM-DD (always 1st of month)
+  market_price_cents: number;
+  source: 'auto_snapshot' | 'manual' | 'tcgplayer_backfill';
+  note?: string;
+  quantity_on_hand: number;
+  xirr?: number;
+}
+
+export async function getSKUHistory(productId: number): Promise<SKUHistoryPoint[]> {
+  const data = await fetchAPI<{ history: SKUHistoryPoint[] }>(`/api/v1/admin/skus/${productId}/history`);
+  return data.history;
+}
+
+export async function putSKUHistoryPoint(
+  productId: number,
+  yyyymm: string,
+  marketPriceCents: number,
+  note?: string,
+): Promise<void> {
+  await fetchAPI(`/api/v1/admin/skus/${productId}/history/${yyyymm}`, {
+    method: 'PUT',
+    body: JSON.stringify({ market_price_cents: marketPriceCents, note: note ?? '' }),
+  });
+}
+
+export async function deleteSKUHistoryPoint(productId: number, yyyymm: string): Promise<void> {
+  await fetchAPI(`/api/v1/admin/skus/${productId}/history/${yyyymm}`, { method: 'DELETE' });
+}
+
 export async function listPlatforms(): Promise<string[]> {
   const data = await fetchAPI<{ platforms: string[] }>('/api/v1/admin/purchases/platforms');
   return data.platforms;

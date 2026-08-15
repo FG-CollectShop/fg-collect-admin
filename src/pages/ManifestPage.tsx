@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   listInventory, listPurchases, listPlatforms, getManifestSummary, getManifestAnalytics,
   createPurchase, updatePurchase, deletePurchase, recordSale, refreshPrice, putSKUNote,
-  lookupTCGProduct,
+  lookupTCGProduct, getSKUHistory, putSKUHistoryPoint, deleteSKUHistoryPoint,
   InventoryItem, Purchase, ManifestSummary, AnalyticsGroup, AnalyticsGroupBy, InventoryGroup,
-  ItemType, Platform, formatCents,
+  SKUHistoryPoint, ItemType, Platform, formatCents,
 } from '../api/manifest';
 
 type Tab = 'inventory' | 'purchases' | 'analytics';
@@ -645,11 +645,249 @@ function SKUNoteCell({ item, onUpdated }: { item: InventoryItem; onUpdated: () =
   );
 }
 
+// ── SKU History Modal (market + XIRR over time) ──────────────────────────────
+
+function HistoryChart({ points }: { points: SKUHistoryPoint[] }) {
+  const withData = points.filter(p => p.market_price_cents > 0);
+  if (withData.length < 1) {
+    return <p className="text-gray-400 text-sm py-8 text-center">No history yet — snapshots accrue monthly.</p>;
+  }
+
+  // SVG chart geometry.
+  const W = 640, H = 240, padL = 50, padR = 50, padT = 12, padB = 30;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+
+  const times = withData.map(p => new Date(p.snapshot_date).getTime());
+  const tMin = Math.min(...times);
+  const tMax = Math.max(...times);
+  const tSpan = tMax - tMin || 1;
+
+  const marketVals = withData.map(p => p.market_price_cents / 100);
+  const mMin = Math.min(...marketVals);
+  const mMax = Math.max(...marketVals);
+  const mPad = (mMax - mMin) * 0.15 || mMax * 0.15 || 1;
+  const mLo = Math.max(0, mMin - mPad);
+  const mHi = mMax + mPad;
+
+  const xirrVals = withData.filter(p => p.xirr != null).map(p => (p.xirr as number) * 100);
+  const hasXIRR = xirrVals.length > 0;
+  const xMin = hasXIRR ? Math.min(...xirrVals, 0) : 0;
+  const xMax = hasXIRR ? Math.max(...xirrVals, 0) : 100;
+  const xPad = Math.max((xMax - xMin) * 0.15, 5);
+  const xLo = xMin - xPad;
+  const xHi = xMax + xPad;
+
+  const px = (t: number) => padL + ((t - tMin) / tSpan) * innerW;
+  const pyM = (v: number) => padT + (1 - (v - mLo) / (mHi - mLo)) * innerH;
+  const pyX = (v: number) => padT + (1 - (v - xLo) / (xHi - xLo)) * innerH;
+
+  const marketPath = withData
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${px(new Date(p.snapshot_date).getTime())},${pyM(p.market_price_cents / 100)}`)
+    .join(' ');
+
+  const xirrPoints = withData.filter(p => p.xirr != null);
+  const xirrPath = xirrPoints
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${px(new Date(p.snapshot_date).getTime())},${pyX((p.xirr as number) * 100)}`)
+    .join(' ');
+
+  const fmtDate = (t: number) => new Date(t).toISOString().slice(0, 7);
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 280 }}>
+      {/* Y grid lines (market) */}
+      {[0, 0.25, 0.5, 0.75, 1].map(f => {
+        const y = padT + f * innerH;
+        const v = mHi - f * (mHi - mLo);
+        return (
+          <g key={`ml${f}`}>
+            <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#e5e7eb" strokeDasharray="2,3" />
+            <text x={padL - 6} y={y + 3} textAnchor="end" fontSize="10" fill="#6b7280">
+              ${v.toFixed(0)}
+            </text>
+          </g>
+        );
+      })}
+      {/* Right Y axis (XIRR) */}
+      {hasXIRR && [0, 0.25, 0.5, 0.75, 1].map(f => {
+        const y = padT + f * innerH;
+        const v = xHi - f * (xHi - xLo);
+        return (
+          <text key={`xl${f}`} x={W - padR + 6} y={y + 3} textAnchor="start" fontSize="10" fill="#2563eb">
+            {v.toFixed(0)}%
+          </text>
+        );
+      })}
+      {/* X axis labels */}
+      {withData.map((p, i) => {
+        if (i % Math.max(1, Math.floor(withData.length / 6)) !== 0 && i !== withData.length - 1) return null;
+        const t = new Date(p.snapshot_date).getTime();
+        return (
+          <text key={`xa${i}`} x={px(t)} y={H - 10} textAnchor="middle" fontSize="10" fill="#6b7280">
+            {fmtDate(t)}
+          </text>
+        );
+      })}
+      {/* Market line */}
+      <path d={marketPath} stroke="#d97706" strokeWidth="2" fill="none" />
+      {withData.map((p, i) => (
+        <circle key={`mp${i}`} cx={px(new Date(p.snapshot_date).getTime())} cy={pyM(p.market_price_cents / 100)}
+                r="3" fill={p.source === 'manual' ? '#fff' : '#d97706'} stroke="#d97706" strokeWidth="1.5">
+          <title>{p.snapshot_date}: ${(p.market_price_cents / 100).toFixed(2)} ({p.source}){p.xirr != null ? ` · XIRR ${(p.xirr * 100).toFixed(1)}%` : ''}</title>
+        </circle>
+      ))}
+      {/* XIRR line */}
+      {hasXIRR && (
+        <>
+          <path d={xirrPath} stroke="#2563eb" strokeWidth="2" fill="none" strokeDasharray="4,2" />
+          {xirrPoints.map((p, i) => (
+            <circle key={`xp${i}`} cx={px(new Date(p.snapshot_date).getTime())} cy={pyX((p.xirr as number) * 100)}
+                    r="2.5" fill="#2563eb">
+              <title>{p.snapshot_date}: XIRR {((p.xirr as number) * 100).toFixed(1)}%</title>
+            </circle>
+          ))}
+        </>
+      )}
+      {/* Legend */}
+      <g transform={`translate(${padL},${padT})`}>
+        <rect x="0" y="0" width="10" height="10" fill="#d97706" />
+        <text x="14" y="9" fontSize="10" fill="#374151">Market $</text>
+        {hasXIRR && (
+          <>
+            <line x1="80" y1="5" x2="94" y2="5" stroke="#2563eb" strokeWidth="2" strokeDasharray="4,2" />
+            <text x="98" y="9" fontSize="10" fill="#374151">XIRR %</text>
+          </>
+        )}
+      </g>
+    </svg>
+  );
+}
+
+function SKUHistoryModal({
+  productId,
+  itemName,
+  onClose,
+}: {
+  productId: number;
+  itemName: string;
+  onClose: () => void;
+}) {
+  const [points, setPoints] = useState<SKUHistoryPoint[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [addMonth, setAddMonth] = useState(''); // YYYY-MM
+  const [addPrice, setAddPrice] = useState('');
+  const [addNote, setAddNote] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setPoints(await getSKUHistory(productId));
+    } finally {
+      setLoading(false);
+    }
+  }, [productId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function addOrUpdate() {
+    if (!addMonth || !addPrice) return;
+    setSaving(true);
+    try {
+      await putSKUHistoryPoint(productId, addMonth, Math.round(parseFloat(addPrice) * 100), addNote || undefined);
+      setAddMonth(''); setAddPrice(''); setAddNote('');
+      await load();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(snapshotDate: string) {
+    if (!confirm(`Delete history point for ${snapshotDate}?`)) return;
+    await deleteSKUHistoryPoint(productId, snapshotDate.slice(0, 7));
+    await load();
+  }
+
+  const inputCls = "w-full border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500";
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-5 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-800">Price + XIRR History</h3>
+            <p className="text-xs text-gray-500 mt-0.5">{itemName} · TCGPlayer #{productId}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-lg leading-none">✕</button>
+        </div>
+
+        {loading ? (
+          <p className="text-gray-400 text-sm py-8 text-center">Loading…</p>
+        ) : (
+          <>
+            <HistoryChart points={points} />
+
+            <div className="mt-5 border-t border-gray-200 pt-4">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Add / Edit Month</h4>
+              <div className="grid grid-cols-4 gap-2 mb-3">
+                <input type="month" value={addMonth} onChange={e => setAddMonth(e.target.value)} className={inputCls} />
+                <input type="number" step="0.01" placeholder="$ price" value={addPrice} onChange={e => setAddPrice(e.target.value)} className={inputCls} />
+                <input type="text" placeholder="note (optional)" value={addNote} onChange={e => setAddNote(e.target.value)} className={inputCls} />
+                <button onClick={addOrUpdate} disabled={saving || !addMonth || !addPrice}
+                        className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-1.5 rounded text-sm font-medium">
+                  {saving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">All Points</h4>
+              {points.length === 0 ? (
+                <p className="text-gray-400 text-sm py-4">No points yet.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200">
+                      <th className="pb-1 pr-3 font-medium">Month</th>
+                      <th className="pb-1 pr-3 font-medium text-right">Market</th>
+                      <th className="pb-1 pr-3 font-medium text-right">Qty on Hand</th>
+                      <th className="pb-1 pr-3 font-medium text-right">XIRR</th>
+                      <th className="pb-1 pr-3 font-medium">Source</th>
+                      <th className="pb-1"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {points.map(p => (
+                      <tr key={p.snapshot_date} className="hover:bg-gray-50">
+                        <td className="py-1.5 pr-3 text-gray-700">{p.snapshot_date.slice(0, 7)}</td>
+                        <td className="py-1.5 pr-3 text-right text-gray-800">{formatCents(p.market_price_cents)}</td>
+                        <td className="py-1.5 pr-3 text-right text-gray-600">{p.quantity_on_hand}</td>
+                        <td className={`py-1.5 pr-3 text-right font-medium ${p.xirr == null ? 'text-gray-300' : p.xirr >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                          {p.xirr != null ? (p.xirr >= 0 ? '+' : '') + (p.xirr * 100).toFixed(1) + '%' : '—'}
+                        </td>
+                        <td className="py-1.5 pr-3 text-xs text-gray-500">{p.source.replace('_', ' ')}</td>
+                        <td className="py-1.5 text-right">
+                          <button onClick={() => remove(p.snapshot_date)} className="text-xs text-red-400 hover:text-red-600">Del</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Inventory Table ───────────────────────────────────────────────────────────
 
 function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[]; onRefresh: () => void; platforms: string[] }) {
   const [selling, setSelling] = useState<InventoryItem | null>(null);
   const [editing, setEditing] = useState<InventoryItem | null>(null);
+  const [history, setHistory] = useState<InventoryItem | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
   async function handleDelete(id: string) {
@@ -676,6 +914,13 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
       )}
       {editing && (
         <EditPurchaseModal purchase={editing} platforms={platforms} onClose={() => setEditing(null)} onSaved={onRefresh} />
+      )}
+      {history && history.tcgplayer_product_id != null && (
+        <SKUHistoryModal
+          productId={history.tcgplayer_product_id}
+          itemName={history.name}
+          onClose={() => setHistory(null)}
+        />
       )}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -764,12 +1009,22 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
                     <SKUNoteCell item={item} onUpdated={onRefresh} />
                   </td>
                   <td className="py-3">
+                    <div className="flex gap-2 items-center flex-wrap">
+                    {item.tcgplayer_product_id != null && (
+                      <button
+                        onClick={() => setHistory(item)}
+                        className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 px-2 py-0.5 rounded"
+                        title="Market + XIRR history chart"
+                      >
+                        Chart
+                      </button>
+                    )}
                     {item.lot_count && item.lot_count > 1 ? (
                       <span className="text-xs text-gray-400 italic" title="Switch to By Lot to edit/sell specific acquisitions">
                         rolled up
                       </span>
                     ) : (
-                    <div className="flex gap-2 items-center">
+                    <>
                       <button
                         onClick={() => setEditing(item)}
                         className="text-xs text-gray-600 hover:text-gray-900 border border-gray-200 hover:border-gray-400 px-2 py-0.5 rounded"
@@ -789,8 +1044,9 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
                       >
                         Del
                       </button>
-                    </div>
+                    </>
                     )}
+                    </div>
                   </td>
                 </tr>
               );
