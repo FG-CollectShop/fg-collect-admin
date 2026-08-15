@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   listInventory, listPurchases, listPlatforms, getManifestSummary, getManifestAnalytics,
   createPurchase, updatePurchase, deletePurchase, recordSale, refreshPrice, putSKUNote,
+  lookupTCGProduct,
   InventoryItem, Purchase, ManifestSummary, AnalyticsGroup, AnalyticsGroupBy,
   ItemType, Platform, formatCents,
 } from '../api/manifest';
@@ -28,6 +29,25 @@ const ITEM_TYPES: { value: ItemType; label: string }[] = [
 ];
 
 const DEFAULT_PLATFORMS = ['tcgplayer', 'ebay', 'lgs', 'amazon', 'facebook', 'local', 'other'];
+
+// Maps TCGPlayer productLineName → our internal game code.
+// Empty match falls through and the game field stays untouched.
+const PRODUCT_LINE_TO_GAME: Record<string, string> = {
+  'pokemon':               'pokemon',
+  'magic':                 'mtg',
+  'yugioh':                'yugioh',
+  'weiss schwarz':         'weiss',
+  'lorcana':               'lorcana',
+  'one piece card game':   'one_piece',
+  'riftbound':             'riftbound',
+  'gundam':                'gundam',
+  'gundam card game':      'gundam',
+};
+
+function gameFromProductLine(line: string | undefined): string | null {
+  if (!line) return null;
+  return PRODUCT_LINE_TO_GAME[line.toLowerCase()] ?? null;
+}
 
 const GAMES: { value: string; label: string }[] = [
   { value: 'mtg',       label: 'MTG' },
@@ -62,6 +82,8 @@ function formatAge(isoStr: string): string {
 function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platforms: string[] }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [lookingUp, setLookingUp] = useState(false);
+  const [lookupErr, setLookupErr] = useState<string | null>(null);
   const [form, setForm] = useState({
     game: 'mtg',
     name: '',
@@ -77,6 +99,35 @@ function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platform
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
+
+  async function lookupProduct() {
+    const raw = form.tcgplayer_product_id.trim();
+    if (!raw) return;
+    const pid = parseInt(raw, 10);
+    if (isNaN(pid) || pid <= 0) return;
+    setLookupErr(null);
+    setLookingUp(true);
+    try {
+      const data = await lookupTCGProduct(pid);
+      setForm(f => {
+        const nextGame = gameFromProductLine(data.product_line);
+        return {
+          ...f,
+          // Only fill fields the user hasn't already typed into.
+          name: f.name.trim() === '' ? data.name : f.name,
+          game: nextGame && (f.game === 'mtg' || f.game === '') ? nextGame : f.game,
+          market_price_cents: f.market_price_cents.trim() === '' && data.market_price_cents
+            ? (data.market_price_cents / 100).toFixed(2)
+            : f.market_price_cents,
+        };
+      });
+    } catch (e) {
+      setLookupErr(e instanceof Error ? e.message : 'Lookup failed');
+      setTimeout(() => setLookupErr(null), 5000);
+    } finally {
+      setLookingUp(false);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -157,8 +208,19 @@ function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platform
           <input required value={form.name} onChange={set('name')} placeholder="e.g. Final Fantasy Commander Display" className={inputCls} />
         </div>
         <div>
-          <label className={labelCls}>TCGPlayer Product ID</label>
-          <input type="number" value={form.tcgplayer_product_id} onChange={set('tcgplayer_product_id')} placeholder="e.g. 618907" className={inputCls} />
+          <label className={labelCls}>
+            TCGPlayer Product ID
+            {lookingUp && <span className="ml-2 text-blue-500 font-normal">looking up…</span>}
+            {lookupErr && <span className="ml-2 text-red-500 font-normal">{lookupErr}</span>}
+          </label>
+          <input
+            type="number"
+            value={form.tcgplayer_product_id}
+            onChange={set('tcgplayer_product_id')}
+            onBlur={lookupProduct}
+            placeholder="e.g. 618907 — auto-fills name + price"
+            className={inputCls}
+          />
         </div>
       </div>
       <div className="grid grid-cols-3 gap-3 mb-3">

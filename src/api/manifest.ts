@@ -181,6 +181,18 @@ export async function listPlatforms(): Promise<string[]> {
   return data.platforms;
 }
 
+export interface TCGProductLookup {
+  product_id: number;
+  name: string;
+  set_name?: string;
+  product_line?: string;
+  market_price_cents?: number;
+}
+
+export async function lookupTCGProduct(productId: number): Promise<TCGProductLookup> {
+  return fetchAPI<TCGProductLookup>(`/api/v1/admin/tcgplayer/product/${productId}`);
+}
+
 export async function refreshPrice(purchaseId: string): Promise<{ market_price_cents: number }> {
   return fetchAPI<{ market_price_cents: number }>(
     `/api/v1/admin/purchases/${purchaseId}/refresh-price`,
