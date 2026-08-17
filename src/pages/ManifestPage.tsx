@@ -17,15 +17,20 @@ const GROUP_BY_OPTIONS: { value: AnalyticsGroupBy; label: string }[] = [
 ];
 
 const ITEM_TYPES: { value: ItemType; label: string }[] = [
-  { value: 'sealed_display',  label: 'Sealed Display' },
-  { value: 'commander_deck',  label: 'Commander Deck' },
-  { value: 'booster_box',     label: 'Booster Box' },
-  { value: 'booster_pack',    label: 'Booster Pack' },
-  { value: 'bundle',          label: 'Bundle' },
-  { value: 'prerelease_kit',  label: 'Prerelease Kit' },
-  { value: 'single',          label: 'Single Card' },
-  { value: 'graded',          label: 'Graded Card' },
-  { value: 'other',           label: 'Other' },
+  { value: 'booster_box',           label: 'Booster Box' },
+  { value: 'booster_pack',          label: 'Booster Pack' },
+  { value: 'sealed_display',        label: 'Sealed Display' },
+  { value: 'elite_trainer_box',     label: 'Elite Trainer Box' },
+  { value: 'pokemon_center_etb',    label: 'Pokemon Center ETB' },
+  { value: 'collector_booster_box', label: 'Collector Booster Box' },
+  { value: 'collector_commander',   label: 'Collector Commander' },
+  { value: 'collection_box',        label: 'Collection Box' },
+  { value: 'commander_deck',        label: 'Commander Deck' },
+  { value: 'bundle',                label: 'Bundle' },
+  { value: 'prerelease_kit',        label: 'Prerelease Kit' },
+  { value: 'single',                label: 'Single Card' },
+  { value: 'graded',                label: 'Graded Card' },
+  { value: 'other',                 label: 'Other' },
 ];
 
 const DEFAULT_PLATFORMS = ['tcgplayer', 'ebay', 'lgs', 'amazon', 'facebook', 'local', 'other'];

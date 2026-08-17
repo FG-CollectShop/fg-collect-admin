@@ -9,6 +9,11 @@ export type ItemType =
   | 'prerelease_kit'
   | 'single'
   | 'graded'
+  | 'elite_trainer_box'
+  | 'pokemon_center_etb'
+  | 'collector_booster_box'
+  | 'collector_commander'
+  | 'collection_box'
   | 'other';
 
 export type Platform = string;
