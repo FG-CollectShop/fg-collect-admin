@@ -18,6 +18,7 @@ const GROUP_BY_OPTIONS: { value: AnalyticsGroupBy; label: string }[] = [
 
 const ITEM_TYPES: { value: ItemType; label: string }[] = [
   { value: 'booster_box',           label: 'Booster Box' },
+  { value: 'booster_bundle',        label: 'Booster Bundle' },
   { value: 'booster_pack',          label: 'Booster Pack' },
   { value: 'sealed_display',        label: 'Sealed Display' },
   { value: 'elite_trainer_box',     label: 'Elite Trainer Box' },
@@ -82,81 +83,140 @@ function formatAge(isoStr: string): string {
   return `${Math.floor(days / 30)}mo ago`;
 }
 
-// ── Add Purchase Form ─────────────────────────────────────────────────────────
+// ── Add Purchase Form (multi-line cart) ───────────────────────────────────────
+//
+// Real-world usage: one store trip → several SKUs bought together, all sharing
+// the same date + platform. Rather than opening the form N times, this form
+// keeps the shared metadata at the top and lets you add as many line items as
+// you want before hitting Save. Each line submits as a separate purchase row
+// (kept per-lot for accurate cost basis / XIRR); atomicity isn't required.
+
+interface LineItem {
+  key: string;
+  tcgplayer_product_id: string;
+  name: string;
+  item_type: ItemType;
+  quantity: string;
+  unit_cost_basis_cents: string;
+  market_price_cents: string;
+  looking_up: boolean;
+  lookup_err: string | null;
+  save_status: 'pending' | 'saving' | 'saved' | 'error';
+  save_err: string | null;
+}
+
+const emptyLine = (): LineItem => ({
+  key: Math.random().toString(36).slice(2),
+  tcgplayer_product_id: '',
+  name: '',
+  item_type: 'booster_box',
+  quantity: '1',
+  unit_cost_basis_cents: '',
+  market_price_cents: '',
+  looking_up: false,
+  lookup_err: null,
+  save_status: 'pending',
+  save_err: null,
+});
 
 function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platforms: string[] }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [lookingUp, setLookingUp] = useState(false);
-  const [lookupErr, setLookupErr] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    game: 'mtg',
-    name: '',
-    item_type: 'sealed_display' as ItemType,
-    tcgplayer_product_id: '',
-    quantity: '1',
-    unit_cost_basis_cents: '',
-    market_price_cents: '',
+  const [shared, setShared] = useState({
+    game: '',
     purchased_at: today(),
-    purchase_platform: '' as Platform | '',
+    purchase_platform: '',
     notes: '',
   });
+  const [lines, setLines] = useState<LineItem[]>([emptyLine()]);
 
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setForm(f => ({ ...f, [k]: e.target.value }));
+  const setSharedField = (k: keyof typeof shared) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setShared(s => ({ ...s, [k]: e.target.value }));
 
-  async function lookupProduct() {
-    const raw = form.tcgplayer_product_id.trim();
+  function updateLine(key: string, patch: Partial<LineItem>) {
+    setLines(ls => ls.map(l => (l.key === key ? { ...l, ...patch } : l)));
+  }
+
+  function addLine() {
+    setLines(ls => [...ls, emptyLine()]);
+  }
+
+  function removeLine(key: string) {
+    setLines(ls => (ls.length === 1 ? ls : ls.filter(l => l.key !== key)));
+  }
+
+  async function lookupLine(key: string) {
+    const line = lines.find(l => l.key === key);
+    if (!line) return;
+    const raw = line.tcgplayer_product_id.trim();
     if (!raw) return;
     const pid = parseInt(raw, 10);
     if (isNaN(pid) || pid <= 0) return;
-    setLookupErr(null);
-    setLookingUp(true);
+    updateLine(key, { looking_up: true, lookup_err: null });
     try {
       const data = await lookupTCGProduct(pid);
-      setForm(f => {
-        const nextGame = gameFromProductLine(data.product_line);
-        return {
-          ...f,
-          // Only fill fields the user hasn't already typed into.
-          name: f.name.trim() === '' ? data.name : f.name,
-          game: nextGame && (f.game === 'mtg' || f.game === '') ? nextGame : f.game,
-          market_price_cents: f.market_price_cents.trim() === '' && data.market_price_cents
-            ? (data.market_price_cents / 100).toFixed(2)
-            : f.market_price_cents,
-        };
-      });
+      // Only fill fields the user hasn't touched.
+      const patch: Partial<LineItem> = { looking_up: false };
+      if (!line.name.trim()) patch.name = data.name;
+      if (!line.market_price_cents.trim() && data.market_price_cents) {
+        patch.market_price_cents = (data.market_price_cents / 100).toFixed(2);
+      }
+      updateLine(key, patch);
+      // Also auto-set the shared game if it's still empty and the SKU tells us.
+      const nextGame = gameFromProductLine(data.product_line);
+      if (nextGame && !shared.game) {
+        setShared(s => ({ ...s, game: nextGame }));
+      }
     } catch (e) {
-      setLookupErr(e instanceof Error ? e.message : 'Lookup failed');
-      setTimeout(() => setLookupErr(null), 5000);
-    } finally {
-      setLookingUp(false);
+      updateLine(key, { looking_up: false, lookup_err: e instanceof Error ? e.message : 'lookup failed' });
+      setTimeout(() => updateLine(key, { lookup_err: null }), 5000);
     }
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.name || !form.unit_cost_basis_cents) return;
-    setSaving(true);
-    try {
-      await createPurchase({
-        game: form.game,
-        name: form.name,
-        item_type: form.item_type,
-        tcgplayer_product_id: form.tcgplayer_product_id ? parseInt(form.tcgplayer_product_id) : undefined,
-        quantity: parseInt(form.quantity) || 1,
-        unit_cost_basis_cents: cents(form.unit_cost_basis_cents),
-        market_price_cents: form.market_price_cents ? cents(form.market_price_cents) : undefined,
-        purchased_at: form.purchased_at,
-        purchase_platform: (form.purchase_platform as Platform) || undefined,
-        notes: form.notes || undefined,
-      });
-      setOpen(false);
-      setForm(f => ({ ...f, name: '', tcgplayer_product_id: '', quantity: '1', unit_cost_basis_cents: '', market_price_cents: '', notes: '' }));
-      onAdded();
-    } finally {
-      setSaving(false);
+    const validLines = lines.filter(l => l.name.trim() && l.unit_cost_basis_cents.trim());
+    if (validLines.length === 0) return;
+    if (!shared.game) {
+      alert('Please pick a game before saving.');
+      return;
     }
+    setSaving(true);
+    let allOk = true;
+    for (const line of lines) {
+      if (!line.name.trim() || !line.unit_cost_basis_cents.trim()) {
+        // Skip empty / partial lines silently — treat them as blank rows.
+        continue;
+      }
+      updateLine(line.key, { save_status: 'saving', save_err: null });
+      try {
+        await createPurchase({
+          game: shared.game,
+          name: line.name,
+          item_type: line.item_type,
+          tcgplayer_product_id: line.tcgplayer_product_id ? parseInt(line.tcgplayer_product_id) : undefined,
+          quantity: parseInt(line.quantity) || 1,
+          unit_cost_basis_cents: cents(line.unit_cost_basis_cents),
+          market_price_cents: line.market_price_cents ? cents(line.market_price_cents) : undefined,
+          purchased_at: shared.purchased_at,
+          purchase_platform: shared.purchase_platform || undefined,
+          notes: shared.notes || undefined,
+        });
+        updateLine(line.key, { save_status: 'saved' });
+      } catch (err) {
+        allOk = false;
+        updateLine(line.key, { save_status: 'error', save_err: err instanceof Error ? err.message : 'save failed' });
+      }
+    }
+    setSaving(false);
+    onAdded();
+    if (allOk) {
+      // Reset form for the next store visit.
+      setLines([emptyLine()]);
+      setShared(s => ({ ...s, notes: '' }));
+      setOpen(false);
+    }
+    // If some failed, keep the form open so the user can see which lines errored.
   }
 
   if (!open) {
@@ -172,33 +232,40 @@ function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platform
 
   const inputCls = "w-full border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500";
   const labelCls = "block text-xs font-medium text-gray-600 mb-1";
+  const cellInput = "w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500";
+
+  const totalCost = lines.reduce((s, l) => {
+    const q = parseInt(l.quantity) || 0;
+    const c = parseFloat(l.unit_cost_basis_cents) || 0;
+    return s + q * c;
+  }, 0);
 
   return (
     <form onSubmit={submit} className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
-      <h3 className="text-sm font-semibold text-gray-800 mb-3">New Purchase</h3>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+      <div className="flex items-start justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-800">New Purchase — {lines.length} {lines.length === 1 ? 'item' : 'items'}</h3>
+        <div className="text-xs text-gray-500">Total: <span className="font-semibold text-gray-800">${totalCost.toFixed(2)}</span></div>
+      </div>
+
+      {/* Shared meta */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <div>
-          <label className={labelCls}>Game</label>
-          <select value={form.game} onChange={set('game')} className={inputCls}>
+          <label className={labelCls}>Game *</label>
+          <select value={shared.game} onChange={setSharedField('game')} className={inputCls} required>
+            <option value="">— pick a game —</option>
             {GAMES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
           </select>
         </div>
         <div>
-          <label className={labelCls}>Type</label>
-          <select value={form.item_type} onChange={set('item_type')} className={inputCls}>
-            {ITEM_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-        </div>
-        <div>
           <label className={labelCls}>Date</label>
-          <input type="date" value={form.purchased_at} onChange={set('purchased_at')} className={inputCls} />
+          <input type="date" value={shared.purchased_at} onChange={setSharedField('purchased_at')} className={inputCls} />
         </div>
         <div>
-          <label className={labelCls}>Platform</label>
+          <label className={labelCls}>Platform (store)</label>
           <input
             list="platform-suggestions"
-            value={form.purchase_platform}
-            onChange={set('purchase_platform')}
+            value={shared.purchase_platform}
+            onChange={setSharedField('purchase_platform')}
             placeholder="e.g. tcgplayer"
             className={inputCls}
           />
@@ -206,53 +273,125 @@ function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platform
             {platforms.map(p => <option key={p} value={p} />)}
           </datalist>
         </div>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
         <div>
-          <label className={labelCls}>Name *</label>
-          <input required value={form.name} onChange={set('name')} placeholder="e.g. Final Fantasy Commander Display" className={inputCls} />
-        </div>
-        <div>
-          <label className={labelCls}>
-            TCGPlayer Product ID
-            {lookingUp && <span className="ml-2 text-blue-500 font-normal">looking up…</span>}
-            {lookupErr && <span className="ml-2 text-red-500 font-normal">{lookupErr}</span>}
-          </label>
-          <input
-            type="number"
-            value={form.tcgplayer_product_id}
-            onChange={set('tcgplayer_product_id')}
-            onBlur={lookupProduct}
-            placeholder="e.g. 618907 — auto-fills name + price"
-            className={inputCls}
-          />
+          <label className={labelCls}>Order / receipt note</label>
+          <input value={shared.notes} onChange={setSharedField('notes')} placeholder="applies to every line" className={inputCls} />
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-3 mb-3">
-        <div>
-          <label className={labelCls}>Qty *</label>
-          <input required type="number" min="1" value={form.quantity} onChange={set('quantity')} className={inputCls} />
-        </div>
-        <div>
-          <label className={labelCls}>Cost Basis / unit *</label>
-          <input required type="number" step="0.01" min="0" value={form.unit_cost_basis_cents} onChange={set('unit_cost_basis_cents')} placeholder="0.00" className={inputCls} />
-        </div>
-        <div>
-          <label className={labelCls}>Market Price / unit</label>
-          <input type="number" step="0.01" min="0" value={form.market_price_cents} onChange={set('market_price_cents')} placeholder="auto-fetch via TCGPlayer ID" className={inputCls} />
-        </div>
+
+      {/* Line items */}
+      <div className="border border-gray-200 rounded overflow-x-auto bg-white">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-left text-[10px] text-gray-500 uppercase tracking-wider bg-gray-50 border-b border-gray-200">
+              <th className="px-2 py-1.5 font-medium w-24">TCG ID</th>
+              <th className="px-2 py-1.5 font-medium">Name *</th>
+              <th className="px-2 py-1.5 font-medium w-40">Type</th>
+              <th className="px-2 py-1.5 font-medium w-16 text-right">Qty *</th>
+              <th className="px-2 py-1.5 font-medium w-24 text-right">Cost / unit *</th>
+              <th className="px-2 py-1.5 font-medium w-24 text-right">Market</th>
+              <th className="px-2 py-1.5 font-medium w-20 text-center">Status</th>
+              <th className="px-2 py-1.5 w-8"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {lines.map(line => (
+              <tr key={line.key} className={line.save_status === 'error' ? 'bg-red-50' : line.save_status === 'saved' ? 'bg-green-50' : ''}>
+                <td className="px-2 py-1.5 align-top">
+                  <input
+                    type="number"
+                    value={line.tcgplayer_product_id}
+                    onChange={e => updateLine(line.key, { tcgplayer_product_id: e.target.value })}
+                    onBlur={() => lookupLine(line.key)}
+                    placeholder="618907"
+                    className={cellInput}
+                  />
+                  {line.looking_up && <div className="text-[10px] text-blue-500 mt-0.5">looking up…</div>}
+                  {line.lookup_err && <div className="text-[10px] text-red-500 mt-0.5">{line.lookup_err}</div>}
+                </td>
+                <td className="px-2 py-1.5 align-top">
+                  <input
+                    value={line.name}
+                    onChange={e => updateLine(line.key, { name: e.target.value })}
+                    placeholder="auto-fills from TCG ID"
+                    className={cellInput}
+                  />
+                </td>
+                <td className="px-2 py-1.5 align-top">
+                  <select
+                    value={line.item_type}
+                    onChange={e => updateLine(line.key, { item_type: e.target.value as ItemType })}
+                    className={cellInput}
+                  >
+                    {ITEM_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </td>
+                <td className="px-2 py-1.5 align-top">
+                  <input
+                    type="number"
+                    min="1"
+                    value={line.quantity}
+                    onChange={e => updateLine(line.key, { quantity: e.target.value })}
+                    className={cellInput + ' text-right'}
+                  />
+                </td>
+                <td className="px-2 py-1.5 align-top">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={line.unit_cost_basis_cents}
+                    onChange={e => updateLine(line.key, { unit_cost_basis_cents: e.target.value })}
+                    placeholder="0.00"
+                    className={cellInput + ' text-right'}
+                  />
+                </td>
+                <td className="px-2 py-1.5 align-top">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={line.market_price_cents}
+                    onChange={e => updateLine(line.key, { market_price_cents: e.target.value })}
+                    placeholder="auto"
+                    className={cellInput + ' text-right'}
+                  />
+                </td>
+                <td className="px-2 py-1.5 align-top text-center text-[10px]">
+                  {line.save_status === 'pending' && <span className="text-gray-300">—</span>}
+                  {line.save_status === 'saving' && <span className="text-blue-500">saving…</span>}
+                  {line.save_status === 'saved' && <span className="text-green-600 font-semibold">✓ saved</span>}
+                  {line.save_status === 'error' && <span className="text-red-500" title={line.save_err ?? ''}>✗ error</span>}
+                </td>
+                <td className="px-2 py-1.5 align-top text-center">
+                  <button
+                    type="button"
+                    onClick={() => removeLine(line.key)}
+                    disabled={lines.length === 1}
+                    className="text-gray-300 hover:text-red-500 disabled:opacity-30 disabled:hover:text-gray-300"
+                    title="Remove this line"
+                  >
+                    ✕
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-      <div className="mb-3">
-        <label className={labelCls}>Notes</label>
-        <input value={form.notes} onChange={set('notes')} className={inputCls} />
-      </div>
-      <div className="flex gap-2">
-        <button type="submit" disabled={saving} className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-1.5 rounded text-sm font-medium">
-          {saving ? 'Saving…' : 'Save'}
+
+      <div className="flex items-center gap-2 mt-3">
+        <button type="button" onClick={addLine} className="text-sm text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 px-3 py-1 rounded">
+          + Add line
         </button>
-        <button type="button" onClick={() => setOpen(false)} className="text-gray-500 hover:text-gray-700 px-4 py-1.5 text-sm">
-          Cancel
-        </button>
+        <div className="ml-auto flex gap-2">
+          <button type="submit" disabled={saving} className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-1.5 rounded text-sm font-medium">
+            {saving ? 'Saving…' : `Save ${lines.filter(l => l.name && l.unit_cost_basis_cents).length} items`}
+          </button>
+          <button type="button" onClick={() => setOpen(false)} className="text-gray-500 hover:text-gray-700 px-4 py-1.5 text-sm">
+            Cancel
+          </button>
+        </div>
       </div>
     </form>
   );

@@ -5,6 +5,7 @@ export type ItemType =
   | 'commander_deck'
   | 'booster_box'
   | 'booster_pack'
+  | 'booster_bundle'
   | 'bundle'
   | 'prerelease_kit'
   | 'single'
