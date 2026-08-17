@@ -34,7 +34,11 @@ const ITEM_TYPES: { value: ItemType; label: string }[] = [
   { value: 'other',                 label: 'Other' },
 ];
 
-const DEFAULT_PLATFORMS = ['tcgplayer', 'ebay', 'lgs', 'amazon', 'facebook', 'local', 'other'];
+const DEFAULT_PLATFORMS = [
+  'tcgplayer', 'ebay', 'amazon', 'facebook', 'reddit',
+  'AnonTCG', 'Alpha Investments', 'Rogue Deckbuilder',
+  'lgs', 'local', 'other',
+];
 
 // Maps TCGPlayer productLineName → our internal game code.
 // Empty match falls through and the game field stays untouched.
@@ -814,10 +818,15 @@ function HistoryChart({ points }: { points: SKUHistoryPoint[] }) {
   const mLo = Math.max(0, mMin - mPad);
   const mHi = mMax + mPad;
 
-  const xirrVals = withData.filter(p => p.xirr != null).map(p => (p.xirr as number) * 100);
-  const hasXIRR = xirrVals.length > 0;
-  const xMin = hasXIRR ? Math.min(...xirrVals, 0) : 0;
-  const xMax = hasXIRR ? Math.max(...xirrVals, 0) : 100;
+  // XIRR axis spans both market and liq series so scales align.
+  const xirrValsAll: number[] = [];
+  withData.forEach(p => {
+    if (p.xirr != null) xirrValsAll.push(p.xirr * 100);
+    if (p.xirr_liq != null) xirrValsAll.push(p.xirr_liq * 100);
+  });
+  const hasXIRR = xirrValsAll.length > 0;
+  const xMin = hasXIRR ? Math.min(...xirrValsAll, 0) : 0;
+  const xMax = hasXIRR ? Math.max(...xirrValsAll, 0) : 100;
   const xPad = Math.max((xMax - xMin) * 0.15, 5);
   const xLo = xMin - xPad;
   const xHi = xMax + xPad;
@@ -833,6 +842,11 @@ function HistoryChart({ points }: { points: SKUHistoryPoint[] }) {
   const xirrPoints = withData.filter(p => p.xirr != null);
   const xirrPath = xirrPoints
     .map((p, i) => `${i === 0 ? 'M' : 'L'}${px(new Date(p.snapshot_date).getTime())},${pyX((p.xirr as number) * 100)}`)
+    .join(' ');
+
+  const xirrLiqPoints = withData.filter(p => p.xirr_liq != null);
+  const xirrLiqPath = xirrLiqPoints
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${px(new Date(p.snapshot_date).getTime())},${pyX((p.xirr_liq as number) * 100)}`)
     .join(' ');
 
   const fmtDate = (t: number) => new Date(t).toISOString().slice(0, 7);
@@ -880,14 +894,26 @@ function HistoryChart({ points }: { points: SKUHistoryPoint[] }) {
           <title>{p.snapshot_date}: ${(p.market_price_cents / 100).toFixed(2)} ({p.source}){p.xirr != null ? ` · XIRR ${(p.xirr * 100).toFixed(1)}%` : ''}</title>
         </circle>
       ))}
-      {/* XIRR line */}
-      {hasXIRR && (
+      {/* XIRR (market) line */}
+      {xirrPoints.length > 0 && (
         <>
           <path d={xirrPath} stroke="#2563eb" strokeWidth="2" fill="none" strokeDasharray="4,2" />
           {xirrPoints.map((p, i) => (
             <circle key={`xp${i}`} cx={px(new Date(p.snapshot_date).getTime())} cy={pyX((p.xirr as number) * 100)}
                     r="2.5" fill="#2563eb">
-              <title>{p.snapshot_date}: XIRR {((p.xirr as number) * 100).toFixed(1)}%</title>
+              <title>{p.snapshot_date}: XIRR (Mkt) {((p.xirr as number) * 100).toFixed(1)}%</title>
+            </circle>
+          ))}
+        </>
+      )}
+      {/* XIRR (liquidation) line — lighter, thinner */}
+      {xirrLiqPoints.length > 0 && (
+        <>
+          <path d={xirrLiqPath} stroke="#93c5fd" strokeWidth="1.5" fill="none" strokeDasharray="2,3" />
+          {xirrLiqPoints.map((p, i) => (
+            <circle key={`xlp${i}`} cx={px(new Date(p.snapshot_date).getTime())} cy={pyX((p.xirr_liq as number) * 100)}
+                    r="2" fill="#93c5fd">
+              <title>{p.snapshot_date}: XIRR (Liq) {((p.xirr_liq as number) * 100).toFixed(1)}%</title>
             </circle>
           ))}
         </>
@@ -896,10 +922,16 @@ function HistoryChart({ points }: { points: SKUHistoryPoint[] }) {
       <g transform={`translate(${padL},${padT})`}>
         <rect x="0" y="0" width="10" height="10" fill="#d97706" />
         <text x="14" y="9" fontSize="10" fill="#374151">Market $</text>
-        {hasXIRR && (
+        {xirrPoints.length > 0 && (
           <>
             <line x1="80" y1="5" x2="94" y2="5" stroke="#2563eb" strokeWidth="2" strokeDasharray="4,2" />
-            <text x="98" y="9" fontSize="10" fill="#374151">XIRR %</text>
+            <text x="98" y="9" fontSize="10" fill="#374151">XIRR (Mkt) %</text>
+          </>
+        )}
+        {xirrLiqPoints.length > 0 && (
+          <>
+            <line x1="170" y1="5" x2="184" y2="5" stroke="#93c5fd" strokeWidth="1.5" strokeDasharray="2,3" />
+            <text x="188" y="9" fontSize="10" fill="#374151">XIRR (Liq) %</text>
           </>
         )}
       </g>
@@ -995,7 +1027,8 @@ function SKUHistoryModal({
                       <th className="pb-1 pr-3 font-medium">Month</th>
                       <th className="pb-1 pr-3 font-medium text-right">Market</th>
                       <th className="pb-1 pr-3 font-medium text-right">Qty on Hand</th>
-                      <th className="pb-1 pr-3 font-medium text-right">XIRR</th>
+                      <th className="pb-1 pr-3 font-medium text-right">XIRR (Mkt)</th>
+                      <th className="pb-1 pr-3 font-medium text-right">XIRR (Liq)</th>
                       <th className="pb-1 pr-3 font-medium">Source</th>
                       <th className="pb-1"></th>
                     </tr>
@@ -1008,6 +1041,9 @@ function SKUHistoryModal({
                         <td className="py-1.5 pr-3 text-right text-gray-600">{p.quantity_on_hand}</td>
                         <td className={`py-1.5 pr-3 text-right font-medium ${p.xirr == null ? 'text-gray-300' : p.xirr >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
                           {p.xirr != null ? (p.xirr >= 0 ? '+' : '') + (p.xirr * 100).toFixed(1) + '%' : '—'}
+                        </td>
+                        <td className={`py-1.5 pr-3 text-right font-medium ${p.xirr_liq == null ? 'text-gray-300' : p.xirr_liq >= 0 ? 'text-blue-600 opacity-80' : 'text-red-500 opacity-80'}`}>
+                          {p.xirr_liq != null ? (p.xirr_liq >= 0 ? '+' : '') + (p.xirr_liq * 100).toFixed(1) + '%' : '—'}
                         </td>
                         <td className="py-1.5 pr-3 text-xs text-gray-500">{p.source.replace('_', ' ')}</td>
                         <td className="py-1.5 text-right">
@@ -1076,6 +1112,7 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
       case 'liq_pct':   return i.liquidation_cents != null && i.unit_cost_basis_cents > 0
                               ? (i.liquidation_cents - i.unit_cost_basis_cents) / i.unit_cost_basis_cents : null;
       case 'xirr':      return i.xirr ?? null;
+      case 'xirr_liq':  return i.xirr_liq ?? null;
       case 'platform': {
         const list = i.platforms && i.platforms.length > 0 ? i.platforms : (i.purchase_platform ? [i.purchase_platform] : []);
         return list[0]?.toLowerCase() ?? null;
@@ -1174,8 +1211,10 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
                           hint="Unrealized gain vs cost basis at market prices: (market − cost) / cost × 100." />
               <SortHeader label="% (Liq)"     k="liq_pct"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
                           hint="Unrealized gain vs cost basis at liquidation value: (liq − cost) / cost × 100. What you'd actually net if you sold today." />
-              <SortHeader label="XIRR"        k="xirr"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
-                          hint="Annualized return using purchase date(s), any sales, and today's market value as terminal cash flow. N/A if held < 30 days or no market price." />
+              <SortHeader label="XIRR (Mkt)"  k="xirr"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+                          hint="Annualized return assuming you sell at TCGPlayer market. Terminal cash flow = market × qty on hand at today. N/A if held < 30 days or no market price." />
+              <SortHeader label="XIRR (Liq)"  k="xirr_liq" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+                          hint="Annualized return you'd actually realize after the 85% liquidation haircut (fees, discounting). This is what hits your bank account." />
               <SortHeader label="Platform"    k="platform" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}
                           hint="Distinct stores you bought this SKU from (aggregated across every lot). Read-only — edit per-lot from the Purchases tab or by switching Group to By Lot." />
               <th className="pb-2 pr-3 font-medium" title="Free-text note shared across every purchase of the same TCGPlayer product ID. Persists forever — good for reprint alerts, discontinued flags, keep-forever tags.">
@@ -1254,6 +1293,9 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
                   </td>
                   <td className={`py-3 pr-3 text-right text-sm font-medium ${item.xirr == null ? 'text-gray-300' : item.xirr >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
                     {item.xirr != null ? (item.xirr >= 0 ? '+' : '') + (item.xirr * 100).toFixed(1) + '%' : '—'}
+                  </td>
+                  <td className={`py-3 pr-3 text-right text-sm font-medium ${item.xirr_liq == null ? 'text-gray-300' : item.xirr_liq >= 0 ? 'text-blue-600 opacity-80' : 'text-red-500 opacity-80'}`}>
+                    {item.xirr_liq != null ? (item.xirr_liq >= 0 ? '+' : '') + (item.xirr_liq * 100).toFixed(1) + '%' : '—'}
                   </td>
                   <td className="py-3 pr-3">
                     {(() => {
@@ -1508,7 +1550,8 @@ function AnalyticsTable({ groups }: { groups: AnalyticsGroup[] }) {
             <th className="pb-2 pr-3 font-medium text-right">Liquidation</th>
             <th className="pb-2 pr-3 font-medium text-right">% (Market)</th>
             <th className="pb-2 pr-3 font-medium text-right">% (Liq)</th>
-            <th className="pb-2 pr-3 font-medium text-right">XIRR</th>
+            <th className="pb-2 pr-3 font-medium text-right" title="Annualized return at market">XIRR (Mkt)</th>
+            <th className="pb-2 pr-3 font-medium text-right" title="Annualized return at 85% liquidation">XIRR (Liq)</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
@@ -1528,6 +1571,9 @@ function AnalyticsTable({ groups }: { groups: AnalyticsGroup[] }) {
               <td className={`py-3 pr-3 text-right font-semibold ${g.xirr == null ? 'text-gray-300' : g.xirr >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
                 {g.xirr != null ? (g.xirr >= 0 ? '+' : '') + (g.xirr * 100).toFixed(1) + '%' : '—'}
               </td>
+              <td className={`py-3 pr-3 text-right font-semibold ${g.xirr_liq == null ? 'text-gray-300' : g.xirr_liq >= 0 ? 'text-blue-600 opacity-80' : 'text-red-500 opacity-80'}`}>
+                {g.xirr_liq != null ? (g.xirr_liq >= 0 ? '+' : '') + (g.xirr_liq * 100).toFixed(1) + '%' : '—'}
+              </td>
             </tr>
           ))}
           <tr className="bg-gray-50 font-semibold border-t-2 border-gray-300">
@@ -1536,7 +1582,7 @@ function AnalyticsTable({ groups }: { groups: AnalyticsGroup[] }) {
             <td className="py-3 pr-3 text-right text-gray-900">{formatCents(totals.cost)}</td>
             <td className="py-3 pr-3 text-right text-gray-900">{formatCents(totals.market)}</td>
             <td className="py-3 pr-3 text-right text-amber-700">{formatCents(totals.liq)}</td>
-            <td colSpan={3} />
+            <td colSpan={4} />
           </tr>
         </tbody>
       </table>
@@ -1581,8 +1627,18 @@ export default function ManifestPage() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    listPlatforms().then(p => {
-      if (p.length > 0) setPlatforms(p);
+    listPlatforms().then(fromDB => {
+      // Union of seeded suggestions + platforms already in use, dedup'd
+      // case-insensitively (prefer the DB casing when both exist).
+      const seen = new Set<string>();
+      const merged: string[] = [];
+      for (const p of [...fromDB, ...DEFAULT_PLATFORMS]) {
+        const k = p.toLowerCase();
+        if (seen.has(k)) continue;
+        seen.add(k);
+        merged.push(p);
+      }
+      setPlatforms(merged);
     }).catch(() => {});
   }, []);
 
@@ -1650,13 +1706,19 @@ export default function ManifestPage() {
             )}
           </div>
           <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
-            <div className="text-xs text-gray-500 mb-1">Portfolio XIRR</div>
+            <div className="text-xs text-gray-500 mb-1" title="Annualized return, computed twice: assuming market prices (top) vs the 85% liquidation haircut (bottom).">Portfolio XIRR</div>
             {summary?.portfolio_xirr != null ? (
               <div className={`text-lg font-bold ${summary.portfolio_xirr >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
                 {(summary.portfolio_xirr >= 0 ? '+' : '') + (summary.portfolio_xirr * 100).toFixed(1) + '%'}
+                <span className="text-xs text-gray-400 font-normal ml-1">mkt</span>
               </div>
             ) : (
               <div className="text-lg font-bold text-gray-300">—</div>
+            )}
+            {summary?.portfolio_xirr_liq != null && (
+              <div className={`text-xs font-medium mt-0.5 ${summary.portfolio_xirr_liq >= 0 ? 'text-blue-600 opacity-80' : 'text-red-500 opacity-80'}`}>
+                {(summary.portfolio_xirr_liq >= 0 ? '+' : '') + (summary.portfolio_xirr_liq * 100).toFixed(1) + '%'} <span className="text-gray-400">liq</span>
+              </div>
             )}
           </div>
         </div>

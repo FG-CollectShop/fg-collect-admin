@@ -46,7 +46,8 @@ export interface InventoryItem extends Purchase {
   quantity_on_hand: number;
   liquidation_cents?: number; // market * 0.85
   pl_cents?: number;          // market - cost_basis per unit
-  xirr?: number;              // annualised return; null if <30d or no market price
+  xirr?: number;              // annualised return @ market
+  xirr_liq?: number;          // annualised return @ liquidation (85% of market)
   sku_note?: string;          // shared note across purchases of same tcgplayer_product_id
   // Populated in SKU-rollup mode:
   lot_count?: number;         // number of lots rolled up
@@ -141,6 +142,7 @@ export interface ManifestSummary {
   market_value_cents: number;
   liquidation_cents: number;
   portfolio_xirr: number | null;
+  portfolio_xirr_liq: number | null;
   cash_flow_count: number;
 }
 
@@ -160,6 +162,7 @@ export interface AnalyticsGroup {
   gain_market_pct?: number;
   gain_liq_pct?: number;
   xirr?: number;
+  xirr_liq?: number;
   cash_flow_count: number;
 }
 
@@ -196,6 +199,7 @@ export interface SKUHistoryPoint {
   note?: string;
   quantity_on_hand: number;
   xirr?: number;
+  xirr_liq?: number;
 }
 
 export async function getSKUHistory(productId: number): Promise<SKUHistoryPoint[]> {
