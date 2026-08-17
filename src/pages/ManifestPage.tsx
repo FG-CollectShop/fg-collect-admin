@@ -763,6 +763,22 @@ function SKUNoteCell({ item, onUpdated }: { item: InventoryItem; onUpdated: () =
     }
   }
 
+  function cancel() {
+    setVal(item.sku_note ?? '');
+    setEditing(false);
+  }
+
+  // Only save when the value actually changed — avoids a wasted API call on
+  // "click into cell → click out". The ✕ button uses onMouseDown+preventDefault
+  // to swallow the blur so cancel wins over save.
+  async function saveIfDirty() {
+    if (val === (item.sku_note ?? '')) {
+      setEditing(false);
+      return;
+    }
+    await save();
+  }
+
   if (editing) {
     return (
       <div className="flex flex-col gap-1">
@@ -770,14 +786,31 @@ function SKUNoteCell({ item, onUpdated }: { item: InventoryItem; onUpdated: () =
           autoFocus
           value={val}
           onChange={e => setVal(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Escape') { setVal(item.sku_note ?? ''); setEditing(false); } }}
+          onBlur={saveIfDirty}
+          onKeyDown={e => {
+            if (e.key === 'Escape') { cancel(); }
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { save(); }
+          }}
           rows={2}
           className="w-full border border-blue-400 rounded px-1 py-0.5 text-xs text-gray-900"
-          placeholder="SKU note (shared across purchases)"
+          placeholder="SKU note (Ctrl+Enter save · Esc cancel · click out saves)"
         />
         <div className="flex gap-1">
-          <button onClick={save} disabled={saving} className="text-green-600 hover:text-green-700 text-xs font-bold">{saving ? '…' : '✓'}</button>
-          <button onClick={() => { setVal(item.sku_note ?? ''); setEditing(false); }} className="text-gray-400 hover:text-gray-600 text-xs">✕</button>
+          <button
+            onMouseDown={e => e.preventDefault()}
+            onClick={save}
+            disabled={saving}
+            className="text-green-600 hover:text-green-700 text-xs font-bold"
+          >
+            {saving ? '…' : '✓'}
+          </button>
+          <button
+            onMouseDown={e => e.preventDefault()}
+            onClick={cancel}
+            className="text-gray-400 hover:text-gray-600 text-xs"
+          >
+            ✕
+          </button>
         </div>
       </div>
     );
@@ -1626,7 +1659,7 @@ export default function ManifestPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  useEffect(() => {
+  const refreshPlatforms = useCallback(() => {
     listPlatforms().then(fromDB => {
       // Union of seeded suggestions + platforms already in use, dedup'd
       // case-insensitively (prefer the DB casing when both exist).
@@ -1641,6 +1674,8 @@ export default function ManifestPage() {
       setPlatforms(merged);
     }).catch(() => {});
   }, []);
+
+  useEffect(() => { refreshPlatforms(); }, [refreshPlatforms]);
 
   useEffect(() => {
     getManifestSummary(game || undefined).then(setSummary).catch(() => setSummary(null));
@@ -1725,7 +1760,7 @@ export default function ManifestPage() {
       )}
 
       {/* Add purchase */}
-      <AddPurchaseForm onAdded={load} platforms={platforms} />
+      <AddPurchaseForm onAdded={() => { load(); refreshPlatforms(); }} platforms={platforms} />
 
       {/* Tabs */}
       <div className="flex items-center justify-between mb-4 mt-4 border-b border-gray-200">
@@ -1776,9 +1811,9 @@ export default function ManifestPage() {
       {loading ? (
         <p className="text-gray-400 text-sm">Loading…</p>
       ) : tab === 'inventory' ? (
-        <InventoryTable items={inventory} onRefresh={load} platforms={platforms} />
+        <InventoryTable items={inventory} onRefresh={() => { load(); refreshPlatforms(); }} platforms={platforms} />
       ) : tab === 'purchases' ? (
-        <PurchasesTable items={purchases} onRefresh={load} platforms={platforms} />
+        <PurchasesTable items={purchases} onRefresh={() => { load(); refreshPlatforms(); }} platforms={platforms} />
       ) : (
         <AnalyticsTable groups={analytics} />
       )}
