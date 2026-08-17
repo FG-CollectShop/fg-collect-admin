@@ -889,11 +889,59 @@ function SKUHistoryModal({
 
 // ── Inventory Table ───────────────────────────────────────────────────────────
 
+// Generic click-to-sort table header cell.
+function SortHeader({
+  label, k, sortKey, sortDir, onSort, className = "",
+}: {
+  label: string; k: string; sortKey: string; sortDir: 'asc' | 'desc';
+  onSort: (k: string) => void; className?: string;
+}) {
+  const active = sortKey === k;
+  return (
+    <th
+      onClick={() => onSort(k)}
+      className={`pb-2 pr-3 font-medium cursor-pointer select-none hover:text-gray-800 ${active ? 'text-gray-900' : ''} ${className}`}
+    >
+      {label}
+      {active && <span className="ml-0.5">{sortDir === 'asc' ? '↑' : '↓'}</span>}
+    </th>
+  );
+}
+
 function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[]; onRefresh: () => void; platforms: string[] }) {
   const [selling, setSelling] = useState<InventoryItem | null>(null);
   const [editing, setEditing] = useState<InventoryItem | null>(null);
   const [history, setHistory] = useState<InventoryItem | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [sortKey, setSortKey] = useState('cost');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  function toggleSort(k: string) {
+    if (sortKey === k) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(k); setSortDir('desc'); }
+  }
+
+  function sortVal(i: InventoryItem, k: string): number | string | null {
+    switch (k) {
+      case 'name':      return i.name.toLowerCase();
+      case 'qty':       return i.quantity_on_hand;
+      case 'cost':      return i.unit_cost_basis_cents * i.quantity_on_hand;
+      case 'market':    return i.market_price_cents != null ? i.market_price_cents * i.quantity_on_hand : null;
+      case 'liq':       return i.liquidation_cents != null ? i.liquidation_cents * i.quantity_on_hand : null;
+      case 'mkt_pct':   return i.market_price_cents != null && i.unit_cost_basis_cents > 0
+                              ? (i.market_price_cents - i.unit_cost_basis_cents) / i.unit_cost_basis_cents : null;
+      case 'liq_pct':   return i.liquidation_cents != null && i.unit_cost_basis_cents > 0
+                              ? (i.liquidation_cents - i.unit_cost_basis_cents) / i.unit_cost_basis_cents : null;
+      case 'xirr':      return i.xirr ?? null;
+      case 'platform': {
+        const list = i.platforms && i.platforms.length > 0 ? i.platforms : (i.purchase_platform ? [i.purchase_platform] : []);
+        return list[0]?.toLowerCase() ?? null;
+      }
+      default: return null;
+    }
+  }
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this purchase? This cannot be undone.')) return;
@@ -912,6 +960,26 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
     return <p className="text-gray-400 text-sm py-8 text-center">No inventory yet — add a purchase above.</p>;
   }
 
+  const q = search.trim().toLowerCase();
+  const filtered = items.filter(i => {
+    if (typeFilter && i.item_type !== typeFilter) return false;
+    if (q) {
+      const hay = `${i.name} ${i.set_name ?? ''} ${i.sku_note ?? ''} ${i.notes ?? ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  const sorted = [...filtered].sort((a, b) => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const av = sortVal(a, sortKey), bv = sortVal(b, sortKey);
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;   // nulls always last
+    if (bv == null) return -1;
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
+  });
+
   return (
     <>
       {selling && (
@@ -927,25 +995,45 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
           onClose={() => setHistory(null)}
         />
       )}
+      <div className="flex items-center gap-3 mb-3">
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search name / set / notes…"
+          className="flex-1 max-w-xs border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        />
+        <select
+          value={typeFilter}
+          onChange={e => setTypeFilter(e.target.value)}
+          className="border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        >
+          <option value="">All types</option>
+          {ITEM_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+        <span className="text-xs text-gray-500 ml-auto">
+          {sorted.length} of {items.length} {items.length === 1 ? 'row' : 'rows'}
+        </span>
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200">
-              <th className="pb-2 pr-3 font-medium">Item</th>
-              <th className="pb-2 pr-3 font-medium text-right">Qty</th>
-              <th className="pb-2 pr-3 font-medium text-right">Cost Basis</th>
-              <th className="pb-2 pr-3 font-medium text-right">Market</th>
-              <th className="pb-2 pr-3 font-medium text-right">Liquidation</th>
-              <th className="pb-2 pr-3 font-medium text-right">% (Market)</th>
-              <th className="pb-2 pr-3 font-medium text-right">% (Liq)</th>
-              <th className="pb-2 pr-3 font-medium text-right">XIRR</th>
-              <th className="pb-2 pr-3 font-medium">Platform</th>
+              <SortHeader label="Item"       k="name"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Qty"        k="qty"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
+              <SortHeader label="Cost Basis" k="cost"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
+              <SortHeader label="Market"     k="market"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
+              <SortHeader label="Liquidation" k="liq"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
+              <SortHeader label="% (Market)" k="mkt_pct"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
+              <SortHeader label="% (Liq)"    k="liq_pct"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
+              <SortHeader label="XIRR"       k="xirr"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
+              <SortHeader label="Platform"   k="platform" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th className="pb-2 pr-3 font-medium">SKU Note</th>
               <th className="pb-2 font-medium">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {items.map(item => {
+            {sorted.map(item => {
               const mktPct = item.market_price_cents != null && item.unit_cost_basis_cents > 0
                 ? (item.market_price_cents - item.unit_cost_basis_cents) / item.unit_cost_basis_cents * 100
                 : null;
@@ -1001,14 +1089,18 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
                     {item.xirr != null ? (item.xirr >= 0 ? '+' : '') + (item.xirr * 100).toFixed(1) + '%' : '—'}
                   </td>
                   <td className="py-3 pr-3">
-                    {item.lot_count && item.lot_count > 1 && item.platforms ? (
-                      <span className="text-xs text-gray-600" title={item.platforms.join(', ')}>
-                        {item.platforms.slice(0, 2).join(', ')}
-                        {item.platforms.length > 2 && ` +${item.platforms.length - 2}`}
-                      </span>
-                    ) : (
-                      <PlatformCell item={item} platforms={platforms} onUpdated={onRefresh} />
-                    )}
+                    {(() => {
+                      const list = item.platforms && item.platforms.length > 0
+                        ? item.platforms
+                        : (item.purchase_platform ? [item.purchase_platform] : []);
+                      if (list.length === 0) return <span className="text-xs text-gray-300">—</span>;
+                      return (
+                        <span className="text-xs text-gray-600" title={list.join(', ')}>
+                          {list.slice(0, 2).join(', ')}
+                          {list.length > 2 && ` +${list.length - 2}`}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="py-3 pr-3">
                     <SKUNoteCell item={item} onUpdated={onRefresh} />
@@ -1068,6 +1160,27 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
 function PurchasesTable({ items, onRefresh, platforms }: { items: Purchase[]; onRefresh: () => void; platforms: string[] }) {
   const [editing, setEditing] = useState<Purchase | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [sortKey, setSortKey] = useState('date');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  function toggleSort(k: string) {
+    if (sortKey === k) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(k); setSortDir('desc'); }
+  }
+
+  function sortVal(p: Purchase, k: string): number | string | null {
+    switch (k) {
+      case 'name':     return p.name.toLowerCase();
+      case 'qty':      return p.quantity;
+      case 'unitcost': return p.unit_cost_basis_cents;
+      case 'total':    return p.unit_cost_basis_cents * p.quantity;
+      case 'date':     return p.purchased_at;
+      case 'platform': return (p.purchase_platform ?? '').toLowerCase();
+      default: return null;
+    }
+  }
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this purchase? This cannot be undone.')) return;
@@ -1086,26 +1199,66 @@ function PurchasesTable({ items, onRefresh, platforms }: { items: Purchase[]; on
     return <p className="text-gray-400 text-sm py-8 text-center">No purchases recorded yet.</p>;
   }
 
+  const q = search.trim().toLowerCase();
+  const filtered = items.filter(p => {
+    if (typeFilter && p.item_type !== typeFilter) return false;
+    if (q) {
+      const hay = `${p.name} ${p.set_name ?? ''} ${p.purchase_platform ?? ''} ${p.notes ?? ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  const sorted = [...filtered].sort((a, b) => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const av = sortVal(a, sortKey), bv = sortVal(b, sortKey);
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
+  });
+
   return (
     <>
       {editing && (
         <EditPurchaseModal purchase={editing} platforms={platforms} onClose={() => setEditing(null)} onSaved={onRefresh} />
       )}
+      <div className="flex items-center gap-3 mb-3">
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search name / set / platform / notes…"
+          className="flex-1 max-w-xs border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        />
+        <select
+          value={typeFilter}
+          onChange={e => setTypeFilter(e.target.value)}
+          className="border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        >
+          <option value="">All types</option>
+          {ITEM_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+        <span className="text-xs text-gray-500 ml-auto">
+          {sorted.length} of {items.length} {items.length === 1 ? 'row' : 'rows'}
+        </span>
+      </div>
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200">
-            <th className="pb-2 pr-3 font-medium">Item</th>
-            <th className="pb-2 pr-3 font-medium text-right">Qty</th>
-            <th className="pb-2 pr-3 font-medium text-right">Cost / unit</th>
-            <th className="pb-2 pr-3 font-medium text-right">Total Paid</th>
-            <th className="pb-2 pr-3 font-medium">Date</th>
-            <th className="pb-2 pr-3 font-medium">Platform</th>
+            <SortHeader label="Item"       k="name"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            <SortHeader label="Qty"        k="qty"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
+            <SortHeader label="Cost / unit" k="unitcost" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
+            <SortHeader label="Total Paid" k="total"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
+            <SortHeader label="Date"       k="date"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            <SortHeader label="Platform"   k="platform" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             <th className="pb-2 font-medium"></th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
-          {items.map(item => (
+          {sorted.map(item => (
             <tr key={item.id} className="hover:bg-gray-50">
               <td className="py-3 pr-3">
                 <div className="flex items-center gap-3">
