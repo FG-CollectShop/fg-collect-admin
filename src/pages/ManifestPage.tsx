@@ -1028,20 +1028,22 @@ function SKUHistoryModal({
 
 // ── Inventory Table ───────────────────────────────────────────────────────────
 
-// Generic click-to-sort table header cell.
+// Generic click-to-sort table header cell. `hint` shows on hover as a native
+// browser tooltip and a dotted underline nudge lets users know it's there.
 function SortHeader({
-  label, k, sortKey, sortDir, onSort, className = "",
+  label, k, sortKey, sortDir, onSort, hint, className = "",
 }: {
   label: string; k: string; sortKey: string; sortDir: 'asc' | 'desc';
-  onSort: (k: string) => void; className?: string;
+  onSort: (k: string) => void; hint?: string; className?: string;
 }) {
   const active = sortKey === k;
   return (
     <th
       onClick={() => onSort(k)}
+      title={hint}
       className={`pb-2 pr-3 font-medium cursor-pointer select-none hover:text-gray-800 ${active ? 'text-gray-900' : ''} ${className}`}
     >
-      {label}
+      <span className={hint ? 'border-b border-dotted border-gray-400' : ''}>{label}</span>
       {active && <span className="ml-0.5">{sortDir === 'asc' ? '↑' : '↓'}</span>}
     </th>
   );
@@ -1158,17 +1160,30 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200">
-              <SortHeader label="Item"       k="name"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <SortHeader label="Qty"        k="qty"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
-              <SortHeader label="Cost Basis" k="cost"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
-              <SortHeader label="Market"     k="market"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
-              <SortHeader label="Liquidation" k="liq"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
-              <SortHeader label="% (Market)" k="mkt_pct"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
-              <SortHeader label="% (Liq)"    k="liq_pct"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
-              <SortHeader label="XIRR"       k="xirr"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
-              <SortHeader label="Platform"   k="platform" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <th className="pb-2 pr-3 font-medium">SKU Note</th>
-              <th className="pb-2 font-medium">Actions</th>
+              <SortHeader label="Item"        k="name"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}
+                          hint="TCGPlayer product name (auto-filled). Set + type shown below; blue badge = rolled-up lot count." />
+              <SortHeader label="Qty"         k="qty"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+                          hint="Units currently on hand across all lots (purchased minus sold)." />
+              <SortHeader label="Cost Basis"  k="cost"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+                          hint="Total invested in this SKU for on-hand units. Per-unit shown below (weighted average across lots)." />
+              <SortHeader label="Market"      k="market"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+                          hint="Current total market value = per-unit market × qty on hand. Per-unit shown below." />
+              <SortHeader label="Liquidation" k="liq"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+                          hint="Assumed sale value = market × 85% × qty. Approximates net proceeds after fees / competitive undercutting." />
+              <SortHeader label="% (Market)"  k="mkt_pct"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+                          hint="Unrealized gain vs cost basis at market prices: (market − cost) / cost × 100." />
+              <SortHeader label="% (Liq)"     k="liq_pct"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+                          hint="Unrealized gain vs cost basis at liquidation value: (liq − cost) / cost × 100. What you'd actually net if you sold today." />
+              <SortHeader label="XIRR"        k="xirr"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+                          hint="Annualized return using purchase date(s), any sales, and today's market value as terminal cash flow. N/A if held < 30 days or no market price." />
+              <SortHeader label="Platform"    k="platform" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}
+                          hint="Distinct stores you bought this SKU from (aggregated across every lot). Read-only — edit per-lot from the Purchases tab or by switching Group to By Lot." />
+              <th className="pb-2 pr-3 font-medium" title="Free-text note shared across every purchase of the same TCGPlayer product ID. Persists forever — good for reprint alerts, discontinued flags, keep-forever tags.">
+                <span className="border-b border-dotted border-gray-400">SKU Note</span>
+              </th>
+              <th className="pb-2 font-medium" title="Chart = market + XIRR history modal. Edit/Sell/Del = per-lot actions (only shown on single-lot rows; switch to By Lot to act on individual acquisitions).">
+                <span className="border-b border-dotted border-gray-400">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -1211,12 +1226,25 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
                     <div className="font-medium">{item.quantity_on_hand}</div>
                     {item.quantity_sold > 0 && <div className="text-xs text-gray-400">{item.quantity_sold} sold</div>}
                   </td>
-                  <td className="py-3 pr-3 text-right text-gray-700">{formatCents(item.unit_cost_basis_cents)}</td>
+                  <td className="py-3 pr-3 text-right text-gray-800" title={`${formatCents(item.unit_cost_basis_cents)} per unit × ${item.quantity_on_hand}`}>
+                    <div className="font-semibold">{formatCents(item.unit_cost_basis_cents * item.quantity_on_hand)}</div>
+                    <div className="text-xs text-gray-400">{formatCents(item.unit_cost_basis_cents)}/u</div>
+                  </td>
                   <td className="py-3 pr-3 text-right">
+                    <div className="font-semibold text-gray-800" title={item.market_price_cents != null ? `${formatCents(item.market_price_cents)} per unit × ${item.quantity_on_hand}` : ''}>
+                      {item.market_price_cents != null
+                        ? formatCents(item.market_price_cents * item.quantity_on_hand)
+                        : <span className="text-gray-300 font-normal">—</span>}
+                    </div>
                     <MarketPriceCell item={item} onUpdated={onRefresh} />
                   </td>
-                  <td className="py-3 pr-3 text-right font-medium text-amber-600">
-                    {item.liquidation_cents != null ? formatCents(item.liquidation_cents) : <span className="text-gray-300">—</span>}
+                  <td className="py-3 pr-3 text-right text-amber-600" title={item.liquidation_cents != null ? `${formatCents(item.liquidation_cents)} per unit × ${item.quantity_on_hand}` : ''}>
+                    {item.liquidation_cents != null ? (
+                      <>
+                        <div className="font-semibold">{formatCents(item.liquidation_cents * item.quantity_on_hand)}</div>
+                        <div className="text-xs opacity-70">{formatCents(item.liquidation_cents)}/u</div>
+                      </>
+                    ) : <span className="text-gray-300">—</span>}
                   </td>
                   <td className={`py-3 pr-3 text-right font-semibold text-sm ${mktPct == null ? 'text-gray-300' : mktPct >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                     {mktPct != null ? (mktPct >= 0 ? '+' : '') + mktPct.toFixed(1) + '%' : '—'}
@@ -1387,12 +1415,18 @@ function PurchasesTable({ items, onRefresh, platforms }: { items: Purchase[]; on
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200">
-            <SortHeader label="Item"       k="name"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-            <SortHeader label="Qty"        k="qty"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
-            <SortHeader label="Cost / unit" k="unitcost" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
-            <SortHeader label="Total Paid" k="total"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
-            <SortHeader label="Date"       k="date"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-            <SortHeader label="Platform"   k="platform" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            <SortHeader label="Item"        k="name"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}
+                        hint="Product name and set as entered. Each row is one purchase (lot) — same SKU bought twice = two rows." />
+            <SortHeader label="Qty"         k="qty"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+                        hint="Units in this specific acquisition. Doesn't reflect sales — see Inventory tab for on-hand qty." />
+            <SortHeader label="Cost / unit" k="unitcost" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+                        hint="Per-unit price paid on this order (before shipping / fees unless you rolled them in)." />
+            <SortHeader label="Total Paid"  k="total"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+                        hint="qty × cost/unit for this lot. Sum across lots for total invested per SKU." />
+            <SortHeader label="Date"        k="date"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}
+                        hint="Purchase date you entered — this drives XIRR, not the timestamp of when you added it to the system." />
+            <SortHeader label="Platform"    k="platform" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}
+                        hint="Where you bought this lot. Free-text; suggestions come from other platforms already in your data." />
             <th className="pb-2 font-medium"></th>
           </tr>
         </thead>
