@@ -52,6 +52,8 @@ const PRODUCT_LINE_TO_GAME: Record<string, string> = {
   'riftbound':             'riftbound',
   'gundam':                'gundam',
   'gundam card game':      'gundam',
+  'hololive':                    'hololive',
+  'hololive official card game': 'hololive',
 };
 
 function gameFromProductLine(line: string | undefined): string | null {
@@ -68,6 +70,7 @@ const GAMES: { value: string; label: string }[] = [
   { value: 'yugioh',    label: 'Yu-Gi-Oh!' },
   { value: 'riftbound', label: 'Riftbound' },
   { value: 'gundam',    label: 'Gundam' },
+  { value: 'hololive',  label: 'hololive' },
   { value: 'other',     label: 'Other' },
 ];
 
