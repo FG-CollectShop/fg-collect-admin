@@ -49,6 +49,7 @@ export interface InventoryItem extends Purchase {
   xirr?: number;              // annualised return @ market
   xirr_liq?: number;          // annualised return @ liquidation (85% of market)
   sku_note?: string;          // shared note across purchases of same tcgplayer_product_id
+  sku_location?: string;      // shared storage location across purchases of same tcgplayer_product_id
   // Populated in SKU-rollup mode:
   lot_count?: number;         // number of lots rolled up
   platforms?: string[];       // distinct platforms across lots
@@ -190,6 +191,46 @@ export async function putSKUNote(productId: number, note: string): Promise<void>
     method: 'PUT',
     body: JSON.stringify({ note }),
   });
+}
+
+export async function getSKULocation(productId: number): Promise<string | null> {
+  const data = await fetchAPI<{ location: string | null }>(`/api/v1/admin/skus/${productId}/location`);
+  return data.location;
+}
+
+export async function putSKULocation(productId: number, location: string): Promise<void> {
+  await fetchAPI(`/api/v1/admin/skus/${productId}/location`, {
+    method: 'PUT',
+    body: JSON.stringify({ location }),
+  });
+}
+
+export interface SaleRecord {
+  sale_id: string;
+  purchase_id: string;
+  sold_at: string;
+  quantity: number;
+  unit_sale_price_cents: number;
+  total_sale_cents: number;
+  sale_platform?: string;
+  sale_notes?: string;
+  name: string;
+  item_type: string;
+  game: string;
+  set_name?: string;
+  tcgplayer_product_id?: number;
+  unit_cost_basis_cents: number;
+  cogs_cents: number;
+  gross_profit_cents: number;
+  purchased_at: string;
+  purchase_platform?: string;
+  created_at: string;
+}
+
+export async function listSales(game?: string): Promise<SaleRecord[]> {
+  const params = game ? `?game=${game}` : '';
+  const data = await fetchAPI<{ sales: SaleRecord[] }>(`/api/v1/admin/manifest/sales${params}`);
+  return data.sales;
 }
 
 export interface SKUHistoryPoint {

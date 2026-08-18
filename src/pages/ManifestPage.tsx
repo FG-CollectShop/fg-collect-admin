@@ -2,12 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   listInventory, listPurchases, listPlatforms, getManifestSummary, getManifestAnalytics,
   createPurchase, updatePurchase, deletePurchase, recordSale, refreshPrice, putSKUNote,
+  putSKULocation, listSales,
   lookupTCGProduct, getSKUHistory, putSKUHistoryPoint, deleteSKUHistoryPoint,
   InventoryItem, Purchase, ManifestSummary, AnalyticsGroup, AnalyticsGroupBy, InventoryGroup,
-  SKUHistoryPoint, ItemType, Platform, formatCents,
+  SKUHistoryPoint, ItemType, Platform, SaleRecord, formatCents,
 } from '../api/manifest';
 
-type Tab = 'inventory' | 'purchases' | 'analytics';
+type Tab = 'inventory' | 'purchases' | 'sales' | 'analytics';
 
 const GROUP_BY_OPTIONS: { value: AnalyticsGroupBy; label: string }[] = [
   { value: 'item_type',         label: 'Item Type' },
@@ -829,6 +830,79 @@ function SKUNoteCell({ item, onUpdated }: { item: InventoryItem; onUpdated: () =
   );
 }
 
+// ── SKU Storage Location cell (shared across purchases of same product_id) ──
+
+function SKULocationCell({ item, onUpdated }: { item: InventoryItem; onUpdated: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(item.sku_location ?? '');
+  const [saving, setSaving] = useState(false);
+
+  if (item.tcgplayer_product_id == null) {
+    return <span className="text-xs text-gray-300">—</span>;
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      await putSKULocation(item.tcgplayer_product_id!, val);
+      setEditing(false);
+      onUpdated();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function cancel() {
+    setVal(item.sku_location ?? '');
+    setEditing(false);
+  }
+
+  async function saveIfDirty() {
+    if (val === (item.sku_location ?? '')) {
+      setEditing(false);
+      return;
+    }
+    await save();
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1">
+        <input
+          autoFocus
+          type="text"
+          value={val}
+          onChange={e => setVal(e.target.value)}
+          onBlur={saveIfDirty}
+          onKeyDown={e => {
+            if (e.key === 'Escape') { cancel(); }
+            if (e.key === 'Enter') { save(); }
+          }}
+          className="w-32 border border-blue-400 rounded px-1 py-0.5 text-xs text-gray-900"
+          placeholder="e.g. binder A"
+        />
+        <button
+          onMouseDown={e => e.preventDefault()}
+          onClick={cancel}
+          className="text-gray-400 hover:text-gray-600 text-xs"
+        >
+          ✕
+        </button>
+        {saving && <span className="text-xs text-gray-400">…</span>}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className="text-xs text-left hover:text-blue-600 transition-colors text-gray-600 max-w-[140px] whitespace-normal"
+    >
+      {item.sku_location || <span className="text-gray-300">+ set location</span>}
+    </button>
+  );
+}
+
 // ── SKU History Modal (market + XIRR over time) ──────────────────────────────
 
 function HistoryChart({ points }: { points: SKUHistoryPoint[] }) {
@@ -1262,6 +1336,9 @@ function InventoryTable({
                           hint="Annualized return you'd actually realize after the 85% liquidation haircut (fees, discounting). This is what hits your bank account." />
               <SortHeader label="Platform"    k="platform" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}
                           hint="Distinct stores you bought this SKU from (aggregated across every lot). Read-only — edit per-lot from the Purchases tab or by switching Group to By Lot." />
+              <th className="pb-2 pr-3 font-medium" title="Physical storage location shared across every purchase of the same TCGPlayer product ID. Update it once — applies to every lot of that SKU.">
+                <span className="border-b border-dotted border-gray-400">Location</span>
+              </th>
               <th className="pb-2 pr-3 font-medium" title="Free-text note shared across every purchase of the same TCGPlayer product ID. Persists forever — good for reprint alerts, discontinued flags, keep-forever tags.">
                 <span className="border-b border-dotted border-gray-400">SKU Note</span>
               </th>
@@ -1355,6 +1432,9 @@ function InventoryTable({
                         </span>
                       );
                     })()}
+                  </td>
+                  <td className="py-3 pr-3">
+                    <SKULocationCell item={item} onUpdated={onRefresh} />
                   </td>
                   <td className="py-3 pr-3">
                     <SKUNoteCell item={item} onUpdated={onRefresh} />
@@ -1642,11 +1722,220 @@ function AnalyticsTable({ groups }: { groups: AnalyticsGroup[] }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
+// ── SalesTable: audit-ready sales manifest ────────────────────────────────────
+//
+// One row per purchase_sales entry. COGS uses the specific-lot cost basis
+// (each sale row points to a specific purchase). Includes running totals in
+// the footer for the quick sanity glance at the top of a tax filing.
+
+function SalesTable({ items }: { items: SaleRecord[] }) {
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [platformFilter, setPlatformFilter] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [sortKey, setSortKey] = useState('sold_at');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const platforms = Array.from(new Set(items.map(i => i.sale_platform).filter(Boolean))) as string[];
+  platforms.sort();
+
+  const filtered = items.filter(s => {
+    if (search) {
+      const q = search.toLowerCase();
+      const bag = [s.name, s.set_name, s.sale_notes, s.sale_platform, s.game]
+        .filter(Boolean).join(' ').toLowerCase();
+      if (!bag.includes(q)) return false;
+    }
+    if (typeFilter && s.item_type !== typeFilter) return false;
+    if (platformFilter && s.sale_platform !== platformFilter) return false;
+    if (fromDate && s.sold_at < fromDate) return false;
+    if (toDate && s.sold_at > toDate) return false;
+    return true;
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    switch (sortKey) {
+      case 'sold_at':   return a.sold_at.localeCompare(b.sold_at) * dir;
+      case 'name':      return a.name.localeCompare(b.name) * dir;
+      case 'game':      return a.game.localeCompare(b.game) * dir;
+      case 'qty':       return (a.quantity - b.quantity) * dir;
+      case 'unit_sale': return (a.unit_sale_price_cents - b.unit_sale_price_cents) * dir;
+      case 'total':     return (a.total_sale_cents - b.total_sale_cents) * dir;
+      case 'cogs':      return (a.cogs_cents - b.cogs_cents) * dir;
+      case 'profit':    return (a.gross_profit_cents - b.gross_profit_cents) * dir;
+      case 'platform':  return (a.sale_platform ?? '').localeCompare(b.sale_platform ?? '') * dir;
+      default:          return 0;
+    }
+  });
+
+  function toggleSort(k: string) {
+    if (sortKey === k) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(k); setSortDir('desc'); }
+  }
+
+  const totalRevenue = sorted.reduce((s, x) => s + x.total_sale_cents, 0);
+  const totalCogs    = sorted.reduce((s, x) => s + x.cogs_cents, 0);
+  const totalProfit  = totalRevenue - totalCogs;
+  const totalUnits   = sorted.reduce((s, x) => s + x.quantity, 0);
+
+  return (
+    <>
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search name / set / platform / notes…"
+          className="flex-1 min-w-[240px] max-w-xs border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        />
+        <select
+          value={typeFilter}
+          onChange={e => setTypeFilter(e.target.value)}
+          className="border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-700"
+        >
+          <option value="">All types</option>
+          {ITEM_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+        <select
+          value={platformFilter}
+          onChange={e => setPlatformFilter(e.target.value)}
+          className="border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-700"
+        >
+          <option value="">All platforms</option>
+          {platforms.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <label className="text-xs text-gray-500 flex items-center gap-1">
+          From
+          <input
+            type="date"
+            value={fromDate}
+            onChange={e => setFromDate(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1 text-sm text-gray-700"
+          />
+        </label>
+        <label className="text-xs text-gray-500 flex items-center gap-1">
+          To
+          <input
+            type="date"
+            value={toDate}
+            onChange={e => setToDate(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1 text-sm text-gray-700"
+          />
+        </label>
+        <span className="text-xs text-gray-500 ml-auto">
+          {sorted.length} of {items.length} {items.length === 1 ? 'sale' : 'sales'}
+        </span>
+      </div>
+
+      {/* Totals cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+          <div className="text-xs text-gray-500 mb-1">Units sold</div>
+          <div className="text-lg font-bold text-gray-900">{totalUnits}</div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+          <div className="text-xs text-gray-500 mb-1">Revenue</div>
+          <div className="text-lg font-bold text-gray-900">{formatCents(totalRevenue)}</div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+          <div className="text-xs text-gray-500 mb-1">COGS</div>
+          <div className="text-lg font-bold text-amber-600">{formatCents(totalCogs)}</div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+          <div className="text-xs text-gray-500 mb-1">Gross profit</div>
+          <div className={`text-lg font-bold ${totalProfit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+            {formatCents(totalProfit)}
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200">
+              <SortHeader label="Sold"      k="sold_at"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Item"      k="name"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Game"      k="game"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <th className="pb-2 pr-3 font-medium">Type</th>
+              <SortHeader label="Qty"       k="qty"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
+              <SortHeader label="Unit $"    k="unit_sale" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+                          hint="Per-unit sale price recorded on the sale row." />
+              <SortHeader label="Total"     k="total"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+                          hint="quantity × unit sale price." />
+              <SortHeader label="COGS"      k="cogs"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+                          hint="Cost of goods sold = quantity × unit_cost_basis of the specific source purchase lot. Specific-lot method (not FIFO-averaged)." />
+              <SortHeader label="Gross P"   k="profit"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+                          hint="Total − COGS. Does not include shipping / fees / platform cuts — do those separately in your tax filing." />
+              <SortHeader label="Platform"  k="platform"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <th className="pb-2 font-medium">Purchased</th>
+              <th className="pb-2 font-medium">Notes</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {sorted.length === 0 && (
+              <tr>
+                <td colSpan={12} className="py-8 text-center text-gray-400 text-sm">
+                  No sales in this filter.
+                </td>
+              </tr>
+            )}
+            {sorted.map(s => {
+              const profitPct = s.cogs_cents > 0 ? (s.gross_profit_cents / s.cogs_cents) * 100 : null;
+              return (
+                <tr key={s.sale_id} className="hover:bg-gray-50">
+                  <td className="py-2 pr-3 text-gray-700 whitespace-nowrap">{s.sold_at}</td>
+                  <td className="py-2 pr-3">
+                    <div className="text-gray-900">{s.name}</div>
+                    {s.set_name && <div className="text-xs text-gray-500">{s.set_name}</div>}
+                  </td>
+                  <td className="py-2 pr-3 text-gray-500 uppercase text-xs">{s.game}</td>
+                  <td className="py-2 pr-3 text-gray-500 text-xs">{s.item_type}</td>
+                  <td className="py-2 pr-3 text-right font-mono text-gray-700">{s.quantity}</td>
+                  <td className="py-2 pr-3 text-right font-mono text-gray-700">{formatCents(s.unit_sale_price_cents)}</td>
+                  <td className="py-2 pr-3 text-right font-mono text-gray-900">{formatCents(s.total_sale_cents)}</td>
+                  <td className="py-2 pr-3 text-right font-mono text-amber-600">{formatCents(s.cogs_cents)}</td>
+                  <td className={`py-2 pr-3 text-right font-mono ${s.gross_profit_cents >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    {formatCents(s.gross_profit_cents)}
+                    {profitPct != null && (
+                      <div className="text-xs opacity-70">{(profitPct >= 0 ? '+' : '') + profitPct.toFixed(0)}%</div>
+                    )}
+                  </td>
+                  <td className="py-2 pr-3 text-gray-600 text-xs">{s.sale_platform ?? '—'}</td>
+                  <td className="py-2 pr-3 text-gray-500 text-xs whitespace-nowrap">{s.purchased_at}</td>
+                  <td className="py-2 pr-3 text-gray-500 text-xs max-w-[200px] whitespace-normal">{s.sale_notes ?? ''}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          {sorted.length > 0 && (
+            <tfoot className="border-t-2 border-gray-300 font-semibold text-sm">
+              <tr>
+                <td colSpan={4} className="py-2 pr-3 text-gray-500 text-xs uppercase tracking-wider">Totals (filtered)</td>
+                <td className="py-2 pr-3 text-right font-mono">{totalUnits}</td>
+                <td></td>
+                <td className="py-2 pr-3 text-right font-mono">{formatCents(totalRevenue)}</td>
+                <td className="py-2 pr-3 text-right font-mono text-amber-700">{formatCents(totalCogs)}</td>
+                <td className={`py-2 pr-3 text-right font-mono ${totalProfit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                  {formatCents(totalProfit)}
+                </td>
+                <td colSpan={3}></td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </>
+  );
+}
+
 export default function ManifestPage() {
   const [tab, setTab] = useState<Tab>('inventory');
   const [game, setGame] = useState('');
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [sales, setSales] = useState<SaleRecord[]>([]);
   const [platforms, setPlatforms] = useState<string[]>(DEFAULT_PLATFORMS);
   const [summary, setSummary] = useState<ManifestSummary | null>(null);
   const [analytics, setAnalytics] = useState<AnalyticsGroup[]>([]);
@@ -1664,6 +1953,8 @@ export default function ManifestPage() {
         setInventory(await listInventory(game, inventoryGroup));
       } else if (tab === 'purchases') {
         setPurchases(await listPurchases(game));
+      } else if (tab === 'sales') {
+        setSales(await listSales(game || undefined));
       } else {
         const resp = await getManifestAnalytics(groupBy, game || undefined);
         setAnalytics(resp.groups);
@@ -1818,7 +2109,7 @@ export default function ManifestPage() {
       {/* Tabs */}
       <div className="flex items-center justify-between mb-4 mt-4 border-b border-gray-200">
         <div className="flex gap-1">
-          {(['inventory', 'purchases', 'analytics'] as Tab[]).map(t => (
+          {(['inventory', 'purchases', 'sales', 'analytics'] as Tab[]).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -1828,7 +2119,10 @@ export default function ManifestPage() {
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
-              {t === 'inventory' ? 'Inventory' : t === 'purchases' ? 'All Purchases' : 'Analytics'}
+              {t === 'inventory' ? 'Inventory'
+                : t === 'purchases' ? 'All Purchases'
+                : t === 'sales' ? 'All Sales'
+                : 'Analytics'}
             </button>
           ))}
         </div>
@@ -1877,6 +2171,8 @@ export default function ManifestPage() {
         />
       ) : tab === 'purchases' ? (
         <PurchasesTable items={purchases} onRefresh={() => { load(); refreshPlatforms(); }} platforms={platforms} />
+      ) : tab === 'sales' ? (
+        <SalesTable items={sales} />
       ) : (
         <AnalyticsTable groups={analytics} />
       )}
