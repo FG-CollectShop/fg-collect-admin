@@ -1121,12 +1121,21 @@ function SortHeader({
   );
 }
 
-function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[]; onRefresh: () => void; platforms: string[] }) {
+function InventoryTable({
+  items, onRefresh, platforms, onSwitchToLotView,
+  search, setSearch,
+}: {
+  items: InventoryItem[];
+  onRefresh: () => void;
+  platforms: string[];
+  onSwitchToLotView: (searchQuery?: string) => void;
+  search: string;
+  setSearch: (s: string) => void;
+}) {
   const [selling, setSelling] = useState<InventoryItem | null>(null);
   const [editing, setEditing] = useState<InventoryItem | null>(null);
   const [history, setHistory] = useState<InventoryItem | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [sortKey, setSortKey] = useState('cost');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -1362,9 +1371,14 @@ function InventoryTable({ items, onRefresh, platforms }: { items: InventoryItem[
                       </button>
                     )}
                     {item.lot_count && item.lot_count > 1 ? (
-                      <span className="text-xs text-gray-400 italic" title="Switch to By Lot to edit/sell specific acquisitions">
-                        rolled up
-                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onSwitchToLotView(item.name)}
+                        title="Switch to By Lot view (filtered to this SKU) to edit/sell specific acquisitions"
+                        className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 px-2 py-0.5 rounded"
+                      >
+                        {item.lot_count} lots · Sell ↗
+                      </button>
                     ) : (
                     <>
                       <button
@@ -1638,6 +1652,7 @@ export default function ManifestPage() {
   const [analytics, setAnalytics] = useState<AnalyticsGroup[]>([]);
   const [groupBy, setGroupBy] = useState<AnalyticsGroupBy>('item_type');
   const [inventoryGroup, setInventoryGroup] = useState<InventoryGroup>('sku');
+  const [inventorySearch, setInventorySearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -1697,21 +1712,54 @@ export default function ManifestPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-6xl mx-auto manifest-root">
+      {/* Print-only stylesheet: keeps the manifest table visible, drops everything else. */}
+      <style>{`
+        @media print {
+          @page { size: letter landscape; margin: 12mm; }
+          body * { visibility: hidden; }
+          .manifest-root, .manifest-root * { visibility: visible; }
+          .manifest-root { position: absolute; left: 0; top: 0; width: 100%; }
+          .no-print { display: none !important; }
+          /* Compact rows + remove chrome */
+          .manifest-root table { border-collapse: collapse; font-size: 10px; }
+          .manifest-root th, .manifest-root td { padding: 3px 6px !important; }
+          .manifest-root .shadow-sm { box-shadow: none !important; }
+          .manifest-root input, .manifest-root select, .manifest-root button { display: none !important; }
+          .manifest-root a { color: black; text-decoration: none; }
+          .print-timestamp { display: block !important; font-size: 9px; color: #666; margin-bottom: 6px; }
+        }
+        .print-timestamp { display: none; }
+      `}</style>
+
+      <div className="print-timestamp">
+        FG-Collect Manifest — printed {new Date().toLocaleString()}
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Manifest</h1>
           <p className="text-xs text-gray-500 mt-0.5">Purchase &amp; sale ledger · inventory is derived</p>
         </div>
-        <select
-          value={game}
-          onChange={e => setGame(e.target.value)}
-          className="border border-gray-300 rounded px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
-        >
-          <option value="">All games</option>
-          {GAMES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
-        </select>
+        <div className="flex items-center gap-2 no-print">
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50"
+            title="Print the current tab (Inventory / Purchases / Analytics) with the active filters"
+          >
+            🖨 Print
+          </button>
+          <select
+            value={game}
+            onChange={e => setGame(e.target.value)}
+            className="border border-gray-300 rounded px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">All games</option>
+            {GAMES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
+          </select>
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -1763,7 +1811,9 @@ export default function ManifestPage() {
       )}
 
       {/* Add purchase */}
-      <AddPurchaseForm onAdded={() => { load(); refreshPlatforms(); }} platforms={platforms} />
+      <div className="no-print">
+        <AddPurchaseForm onAdded={() => { load(); refreshPlatforms(); }} platforms={platforms} />
+      </div>
 
       {/* Tabs */}
       <div className="flex items-center justify-between mb-4 mt-4 border-b border-gray-200">
@@ -1814,7 +1864,17 @@ export default function ManifestPage() {
       {loading ? (
         <p className="text-gray-400 text-sm">Loading…</p>
       ) : tab === 'inventory' ? (
-        <InventoryTable items={inventory} onRefresh={() => { load(); refreshPlatforms(); }} platforms={platforms} />
+        <InventoryTable
+          items={inventory}
+          onRefresh={() => { load(); refreshPlatforms(); }}
+          platforms={platforms}
+          search={inventorySearch}
+          setSearch={setInventorySearch}
+          onSwitchToLotView={(q) => {
+            if (q) setInventorySearch(q);
+            setInventoryGroup('lot');
+          }}
+        />
       ) : tab === 'purchases' ? (
         <PurchasesTable items={purchases} onRefresh={() => { load(); refreshPlatforms(); }} platforms={platforms} />
       ) : (
