@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -9,7 +9,7 @@ import {
   type ListingsPage,
   type ListingType,
 } from "@/api/listings";
-import { listPlatforms } from "@/api/manifest";
+import { listPlatforms, listPurchasesForListing, recordSale, type LinkedPurchase } from "@/api/manifest";
 import { BreakDownModal } from "./BreakDownModal";
 import type { Game } from "@/api/catalog";
 
@@ -256,14 +256,15 @@ export function InventoryPage() {
           listing={selling}
           platforms={platforms}
           onClose={() => setSelling(null)}
-          onSold={(qty, price, platform, notes) => {
-            const parts = [`sold ${qty}×${fmtPrice(price)}`];
-            if (platform) parts.push(`via ${platform}`);
-            if (notes) parts.push(notes);
+          onFallbackAdjust={(qty, reason) => {
             adjustMu.mutate(
-              { id: selling.id, delta: -qty, reason: parts.join(" — ") },
+              { id: selling.id, delta: -qty, reason },
               { onSuccess: () => setSelling(null) },
             );
+          }}
+          onDone={() => {
+            qc.invalidateQueries({ queryKey: ["listings"] });
+            setSelling(null);
           }}
         />
       )}
@@ -277,12 +278,14 @@ function SellModal({
   listing,
   platforms,
   onClose,
-  onSold,
+  onFallbackAdjust,
+  onDone,
 }: {
   listing: Listing;
   platforms: string[];
   onClose: () => void;
-  onSold: (qty: number, priceCents: number, platform: string, notes: string) => void;
+  onFallbackAdjust: (qty: number, reason: string) => void;
+  onDone: () => void;
 }) {
   const [form, setForm] = useState({
     qty: "1",
@@ -291,16 +294,60 @@ function SellModal({
     date: today(),
     notes: "",
   });
+  const [lots, setLots] = useState<LinkedPurchase[] | null>(null);
+  const [lotsError, setLotsError] = useState<string>("");
+  const [selectedLotId, setSelectedLotId] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string>("");
+
+  useEffect(() => {
+    listPurchasesForListing(listing.id)
+      .then((res) => {
+        setLots(res);
+        // FIFO default: first lot with capacity
+        const fifo = res.find((p) => p.quantity_available > 0);
+        if (fifo) setSelectedLotId(fifo.id);
+      })
+      .catch((e) => setLotsError(e instanceof Error ? e.message : "load lots failed"));
+  }, [listing.id]);
 
   const set = (k: keyof typeof form) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
       setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  function submit(e: React.FormEvent) {
+  const selectedLot = lots?.find((l) => l.id === selectedLotId);
+  const linked = lots !== null && lots.length > 0;
+  const maxQty = selectedLot ? selectedLot.quantity_available : listing.stock;
+
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
+    setSaveError("");
     const qty = Math.max(1, parseInt(form.qty) || 1);
     const priceCents = Math.round(parseFloat(form.price) * 100) || 0;
-    onSold(qty, priceCents, form.platform, form.notes);
+
+    if (linked && selectedLot) {
+      // Ledger path: record against the chosen purchase lot.
+      setSaving(true);
+      try {
+        await recordSale(selectedLot.id, {
+          quantity: qty,
+          unit_sale_price_cents: priceCents,
+          sold_at: form.date,
+          sale_platform: form.platform || undefined,
+          notes: form.notes || undefined,
+        });
+        onDone();
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : "sale failed");
+        setSaving(false);
+      }
+    } else {
+      // Fallback: this listing has no linked purchase yet — decrement listings.stock.
+      const parts = [`sold ${qty}×${fmtPrice(priceCents)}`];
+      if (form.platform) parts.push(`via ${form.platform}`);
+      if (form.notes) parts.push(form.notes);
+      onFallbackAdjust(qty, parts.join(" — "));
+    }
   }
 
   const inputCls =
@@ -315,9 +362,46 @@ function SellModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-sm font-semibold text-gray-800 mb-1">Record Sale</h3>
-        <p className="text-xs text-gray-500 mb-4">
+        <p className="text-xs text-gray-500 mb-3">
           {listing.name} · {listing.stock} in stock
         </p>
+
+        {lots === null && !lotsError && (
+          <div className="text-xs text-gray-400 mb-3 animate-pulse">Loading lots…</div>
+        )}
+        {lotsError && (
+          <div className="mb-3 text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5">
+            {lotsError}
+          </div>
+        )}
+        {lots && lots.length === 0 && (
+          <div className="mb-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+            Not ledger-linked — will decrement <code>listings.stock</code> directly. Link a purchase
+            (<code>UPDATE purchases SET listing_id = '{listing.id}'…</code>) to get proper P&L.
+          </div>
+        )}
+        {lots && lots.length > 1 && (
+          <div className="mb-3">
+            <label className={labelCls}>Sell from lot (FIFO default)</label>
+            <select
+              value={selectedLotId}
+              onChange={(e) => setSelectedLotId(e.target.value)}
+              className={inputCls}
+            >
+              {lots.map((l) => (
+                <option key={l.id} value={l.id} disabled={l.quantity_available === 0}>
+                  {l.purchased_at} · {l.quantity_available}/{l.quantity} avail · cost {fmtPrice(l.unit_cost_basis_cents)}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        {lots && lots.length === 1 && selectedLot && (
+          <div className="mb-3 text-xs text-gray-500">
+            Lot: {selectedLot.purchased_at} · {selectedLot.quantity_available}/{selectedLot.quantity} avail
+            · cost {fmtPrice(selectedLot.unit_cost_basis_cents)}
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3 mb-3">
           <div>
@@ -326,7 +410,7 @@ function SellModal({
               required
               type="number"
               min="1"
-              max={listing.stock}
+              max={maxQty}
               value={form.qty}
               onChange={set("qty")}
               className={inputCls}
@@ -374,6 +458,12 @@ function SellModal({
           />
         </div>
 
+        {saveError && (
+          <div className="mb-3 text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5">
+            {saveError}
+          </div>
+        )}
+
         <div className="flex justify-end gap-2">
           <button
             type="button"
@@ -384,10 +474,10 @@ function SellModal({
           </button>
           <button
             type="submit"
-            disabled={listing.stock === 0}
+            disabled={saving || maxQty === 0}
             className="px-4 py-1.5 text-sm bg-black text-white rounded hover:bg-gray-800 disabled:opacity-40"
           >
-            Record sale
+            {saving ? "Recording…" : "Record sale"}
           </button>
         </div>
       </form>

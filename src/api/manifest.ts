@@ -247,6 +247,62 @@ export async function refreshPrice(purchaseId: string): Promise<{ market_price_c
   );
 }
 
+// ── Ledger endpoints (see fg-collect-core migration 0017) ─────────────────────
+
+export interface LinkedPurchase {
+  id: string;
+  name: string;
+  item_type: string;
+  quantity: number;
+  quantity_available: number;
+  unit_cost_basis_cents: number;
+  purchased_at: string;
+  purchase_platform?: string;
+  location?: string;
+}
+
+export async function listPurchasesForListing(listingId: string): Promise<LinkedPurchase[]> {
+  const data = await fetchAPI<{ purchases: LinkedPurchase[] }>(
+    `/api/v1/admin/listings/${listingId}/purchases`,
+  );
+  return data.purchases;
+}
+
+export interface TransformOutputSpec {
+  name: string;
+  item_type: string;
+  game?: string;
+  listing_id?: string | null;
+  tcgplayer_product_id?: number | null;
+  unit_cost_basis_cents?: number;
+  location?: string | null;
+  notes?: string;
+}
+
+export interface TransformReq {
+  source_qty: number;
+  output_qty_each: number;
+  output: TransformOutputSpec;
+  notes?: string;
+}
+
+export interface TransformRes {
+  transform_id: string;
+  output_purchase_id: string;
+  output_quantity: number;
+  output_unit_cost_cents: number;
+}
+
+export async function transformPurchase(
+  sourcePurchaseId: string,
+  req: TransformReq,
+): Promise<TransformRes> {
+  return fetchAPI<TransformRes>(
+    `/api/v1/admin/purchases/${sourcePurchaseId}/transform`,
+    { method: 'POST', body: JSON.stringify(req) },
+  );
+}
+
 export function tcgImageURL(productId: number): string {
   return `https://tcgplayer-cdn.tcgplayer.com/product/${productId}_in_1000x1000.jpg`;
 }
