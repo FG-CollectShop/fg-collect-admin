@@ -15,6 +15,7 @@ import { BinsPage } from "@/pages/BinsPage";
 import { WhereIsPage } from "@/pages/WhereIsPage";
 import { AcquisitionsPage } from "@/pages/AcquisitionsPage";
 import { ListingsPage } from "@/pages/ListingsPage";
+import { PrintLabelsPage } from "@/pages/PrintLabelsPage";
 import { OrdersPage } from "@/pages/OrdersPage";
 import { PortfolioGamesPage } from "@/pages/PortfolioGamesPage";
 import { PortfolioSetsPage } from "@/pages/PortfolioSetsPage";
@@ -60,6 +61,7 @@ export function App() {
                       <Route path="/inventory/new" element={<InventoryNewPage />} />
                       <Route path="/inventory/graded" element={<GradedInventoryPage />} />
                       <Route path="/inventory/graded/new" element={<GradedIntakePage />} />
+                      <Route path="/inventory/print" element={<PrintLabelsPage />} />
                       <Route path="/pricing" element={<PricingRulesPage />} />
                       <Route path="/bins" element={<BinsPage />} />
                       <Route path="/where" element={<WhereIsPage />} />

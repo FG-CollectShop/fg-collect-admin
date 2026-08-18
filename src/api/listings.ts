@@ -97,6 +97,10 @@ export async function adjustStock(
   });
 }
 
+export async function getListing(id: string): Promise<Listing> {
+  return fetchAPI<Listing>(`/api/v1/listings/${id}`);
+}
+
 export async function softDeleteListing(id: string): Promise<void> {
   return fetchAPI<void>(`/api/v1/admin/listings/${id}`, { method: "DELETE" });
 }
