@@ -62,6 +62,9 @@ export function InventoryPage() {
       }),
   });
 
+  // Go's `nil` slice serializes to JSON `null` — coerce to [] so .length is safe.
+  const items = q.data?.items ?? [];
+
   const platformsQ = useQuery<string[], Error>({
     queryKey: ["platforms"],
     queryFn: listPlatforms,
@@ -152,7 +155,7 @@ export function InventoryPage() {
         </div>
       )}
 
-      {q.isSuccess && q.data.items.length === 0 && (
+      {q.isSuccess && items.length === 0 && (
         <div className="rounded-lg border-2 border-dashed border-gray-200 p-12 text-center text-gray-500">
           No inventory yet.
           <div className="mt-3">
@@ -166,7 +169,7 @@ export function InventoryPage() {
         </div>
       )}
 
-      {q.isSuccess && q.data.items.length > 0 && (
+      {q.isSuccess && items.length > 0 && (
         <>
           <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
             <table className="w-full text-sm">
@@ -175,9 +178,9 @@ export function InventoryPage() {
                   <th className="px-3 py-2 w-8">
                     <input
                       type="checkbox"
-                      checked={selected.size === q.data.items.length && q.data.items.length > 0}
+                      checked={selected.size === items.length && items.length > 0}
                       onChange={(e) =>
-                        setSelected(e.target.checked ? new Set(q.data.items.map((i) => i.id)) : new Set())
+                        setSelected(e.target.checked ? new Set(items.map((i) => i.id)) : new Set())
                       }
                       className="rounded border-gray-300"
                     />
@@ -194,7 +197,7 @@ export function InventoryPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {q.data.items.map((l) => (
+                {items.map((l) => (
                   <Row
                     key={l.id}
                     listing={l}
@@ -220,7 +223,7 @@ export function InventoryPage() {
 
           <div className="mt-4 flex items-center justify-between text-sm">
             <div className="text-gray-500">
-              Showing {offset + 1}–{offset + q.data.items.length}
+              Showing {offset + 1}–{offset + items.length}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -234,7 +237,7 @@ export function InventoryPage() {
               <button
                 type="button"
                 onClick={() => setOffset(offset + PAGE_SIZE)}
-                disabled={q.data.items.length < PAGE_SIZE}
+                disabled={items.length < PAGE_SIZE}
                 className="px-3 py-1.5 border border-gray-300 rounded disabled:opacity-40"
               >
                 Next
