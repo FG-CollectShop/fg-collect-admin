@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/auth/AuthContext";
 import { RequireAuth } from "@/auth/RequireAuth";
 import { AppShell } from "@/layout/AppShell";
+import { ErrorBoundary } from "@/layout/ErrorBoundary";
 import { LoginPage } from "@/pages/LoginPage";
 import { SetsPage } from "@/pages/SetsPage";
 import { SetDetailPage } from "@/pages/SetDetailPage";
@@ -53,7 +54,8 @@ export function App() {
               element={
                 <RequireAuth>
                   <AppShell>
-                    <Routes>
+                    <ErrorBoundary>
+                      <Routes>
                       <Route path="/" element={<Navigate to="/portfolio" replace />} />
                       <Route path="/sets" element={<SetsPage />} />
                       <Route path="/sets/:id" element={<SetDetailPage />} />
@@ -74,7 +76,8 @@ export function App() {
                       <Route path="/portfolio/:game" element={<PortfolioSetsPage />} />
                       <Route path="/portfolio/:game/:setId" element={<PortfolioSetCardsPage />} />
                       <Route path="*" element={<Navigate to="/portfolio" replace />} />
-                    </Routes>
+                      </Routes>
+                    </ErrorBoundary>
                   </AppShell>
                 </RequireAuth>
               }
