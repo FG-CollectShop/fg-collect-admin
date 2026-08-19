@@ -49,6 +49,115 @@ const PRINT_COLUMNS: Record<Exclude<Tab, 'analytics'>, { key: string; label: str
   ],
 };
 
+// Columns available in CSV export, per tab. Superset of PRINT_COLUMNS —
+// includes IDs and raw fields useful for spreadsheet / accounting workflows.
+type ExportCol<T> = { key: string; label: string; defaultHidden?: boolean; get: (row: T) => string | number };
+
+const EXPORT_COLUMNS: {
+  inventory: ExportCol<InventoryItem>[];
+  purchases: ExportCol<Purchase>[];
+  sales:     ExportCol<SaleRecord>[];
+} = {
+  inventory: [
+    { key: 'id',           label: 'Purchase / SKU ID', get: r => r.id },
+    { key: 'name',         label: 'Item',              get: r => r.name },
+    { key: 'set',          label: 'Set',               get: r => r.set_name ?? '' },
+    { key: 'game',         label: 'Game',              get: r => r.game },
+    { key: 'item_type',    label: 'Item type',         get: r => r.item_type },
+    { key: 'tcgplayer_id', label: 'TCGPlayer ID',      get: r => r.tcgplayer_product_id ?? '' },
+    { key: 'qty_on_hand',  label: 'Qty on hand',       get: r => r.quantity_on_hand },
+    { key: 'qty_sold',     label: 'Qty sold',          get: r => r.quantity_sold },
+    { key: 'lot_count',    label: 'Lot count',         get: r => r.lot_count ?? 1 },
+    { key: 'unit_cost',    label: 'Unit cost basis ($)', get: r => (r.unit_cost_basis_cents / 100).toFixed(2) },
+    { key: 'total_cost',   label: 'Total cost basis ($)', get: r => (r.unit_cost_basis_cents * r.quantity_on_hand / 100).toFixed(2) },
+    { key: 'unit_market',  label: 'Unit market ($)',   get: r => r.market_price_cents != null ? (r.market_price_cents / 100).toFixed(2) : '' },
+    { key: 'total_market', label: 'Total market ($)',  get: r => r.market_price_cents != null ? (r.market_price_cents * r.quantity_on_hand / 100).toFixed(2) : '' },
+    { key: 'unit_liq',     label: 'Unit liquidation ($)', get: r => r.liquidation_cents != null ? (r.liquidation_cents / 100).toFixed(2) : '' },
+    { key: 'total_liq',    label: 'Total liquidation ($)', get: r => r.liquidation_cents != null ? (r.liquidation_cents * r.quantity_on_hand / 100).toFixed(2) : '' },
+    { key: 'xirr_mkt',     label: 'XIRR (market)',     get: r => r.xirr != null ? (r.xirr * 100).toFixed(2) + '%' : '' },
+    { key: 'xirr_liq',     label: 'XIRR (liq)',        get: r => r.xirr_liq != null ? (r.xirr_liq * 100).toFixed(2) + '%' : '' },
+    { key: 'platforms',    label: 'Platform(s)',       get: r => (r.platforms && r.platforms.length > 0 ? r.platforms.join('; ') : (r.purchase_platform ?? '')) },
+    { key: 'location',     label: 'Storage location',  get: r => r.sku_location ?? '' },
+    { key: 'sku_note',     label: 'SKU note',          get: r => r.sku_note ?? '' },
+    { key: 'purchased_at', label: 'Earliest purchased at', get: r => r.purchased_at },
+  ],
+  purchases: [
+    { key: 'id',           label: 'Purchase ID',        get: r => r.id },
+    { key: 'name',         label: 'Item',               get: r => r.name },
+    { key: 'set',          label: 'Set',                get: r => r.set_name ?? '' },
+    { key: 'game',         label: 'Game',               get: r => r.game },
+    { key: 'item_type',    label: 'Item type',          get: r => r.item_type },
+    { key: 'tcgplayer_id', label: 'TCGPlayer ID',       get: r => r.tcgplayer_product_id ?? '' },
+    { key: 'qty',          label: 'Qty',                get: r => r.quantity },
+    { key: 'unit_cost',    label: 'Cost / unit ($)',    get: r => (r.unit_cost_basis_cents / 100).toFixed(2) },
+    { key: 'total_paid',   label: 'Total paid ($)',     get: r => (r.unit_cost_basis_cents * r.quantity / 100).toFixed(2) },
+    { key: 'purchased_at', label: 'Purchase date',      get: r => r.purchased_at },
+    { key: 'platform',     label: 'Platform',           get: r => r.purchase_platform ?? '' },
+    { key: 'notes',        label: 'Notes',              get: r => r.notes ?? '' },
+    { key: 'created_at',   label: 'Recorded at',        get: r => r.created_at, defaultHidden: true },
+  ],
+  sales: [
+    { key: 'sale_id',      label: 'Sale ID',            get: r => r.sale_id },
+    { key: 'purchase_id',  label: 'Source purchase ID', get: r => r.purchase_id },
+    { key: 'sold_at',      label: 'Sold date',          get: r => r.sold_at },
+    { key: 'name',         label: 'Item',               get: r => r.name },
+    { key: 'set',          label: 'Set',                get: r => r.set_name ?? '' },
+    { key: 'game',         label: 'Game',               get: r => r.game },
+    { key: 'item_type',    label: 'Item type',          get: r => r.item_type },
+    { key: 'tcgplayer_id', label: 'TCGPlayer ID',       get: r => r.tcgplayer_product_id ?? '' },
+    { key: 'qty',          label: 'Qty',                get: r => r.quantity },
+    { key: 'unit_sale',    label: 'Sale price / unit ($)', get: r => (r.unit_sale_price_cents / 100).toFixed(2) },
+    { key: 'total_sale',   label: 'Total sale ($)',     get: r => (r.total_sale_cents / 100).toFixed(2) },
+    { key: 'unit_cost',    label: 'Cost basis / unit ($)', get: r => (r.unit_cost_basis_cents / 100).toFixed(2) },
+    { key: 'cogs',         label: 'COGS ($)',           get: r => (r.cogs_cents / 100).toFixed(2) },
+    { key: 'gross_profit', label: 'Gross profit ($)',   get: r => (r.gross_profit_cents / 100).toFixed(2) },
+    { key: 'platform',     label: 'Sale platform',      get: r => r.sale_platform ?? '' },
+    { key: 'purchased_at', label: 'Purchased date',     get: r => r.purchased_at },
+    { key: 'purchase_platform', label: 'Purchase platform', get: r => r.purchase_platform ?? '' },
+    { key: 'notes',        label: 'Sale notes',         get: r => r.sale_notes ?? '' },
+    { key: 'created_at',   label: 'Recorded at',        get: r => r.created_at, defaultHidden: true },
+  ],
+};
+
+function loadHiddenExportCols(tab: Tab): Set<string> {
+  if (tab === 'analytics') return new Set();
+  const raw = localStorage.getItem(`manifest.export.hidden.${tab}`);
+  if (raw) {
+    try { return new Set(JSON.parse(raw) as string[]); } catch { /* fall through */ }
+  }
+  return new Set(EXPORT_COLUMNS[tab].filter(c => c.defaultHidden).map(c => c.key));
+}
+
+function saveHiddenExportCols(tab: Tab, hidden: Set<string>) {
+  if (tab === 'analytics') return;
+  localStorage.setItem(`manifest.export.hidden.${tab}`, JSON.stringify(Array.from(hidden)));
+}
+
+function toCSV(headers: string[], rows: (string | number)[][]): string {
+  const escape = (v: string | number): string => {
+    const s = String(v ?? '');
+    // RFC 4180: quote if contains ",", quote, newline, or leading/trailing space
+    if (/[",\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  };
+  const lines = [headers.map(escape).join(',')];
+  for (const row of rows) lines.push(row.map(escape).join(','));
+  return lines.join('\r\n');
+}
+
+function downloadCSV(filename: string, content: string) {
+  // BOM so Excel opens UTF-8 correctly.
+  const blob = new Blob(['﻿' + content], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function loadHiddenCols(tab: Tab): Set<string> {
   if (tab === 'analytics') return new Set();
   const raw = localStorage.getItem(`manifest.print.hidden.${tab}`);
@@ -1881,6 +1990,119 @@ function PrintControls({ tab }: { tab: Tab }) {
   );
 }
 
+// ── ExportControls: CSV button + column-picker popover ─────────────────────
+//
+// Same shape as PrintControls but generates a CSV download instead of
+// printing. Uses its own EXPORT_COLUMNS config (superset of printable
+// columns — includes IDs and raw fields useful for spreadsheet workflows).
+
+interface ExportControlsProps {
+  tab: Tab;
+  gameFilter: string;
+  inventory: InventoryItem[];
+  purchases: Purchase[];
+  sales: SaleRecord[];
+}
+
+function ExportControls({ tab, gameFilter, inventory, purchases, sales }: ExportControlsProps) {
+  const [open, setOpen] = useState(false);
+  const [hidden, setHidden] = useState<Set<string>>(() => loadHiddenExportCols(tab));
+
+  useEffect(() => { setHidden(loadHiddenExportCols(tab)); }, [tab]);
+
+  if (tab === 'analytics') return null;
+  const columns = EXPORT_COLUMNS[tab];
+  const visible = columns.filter(c => !hidden.has(c.key));
+
+  function toggle(key: string) {
+    setHidden(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      saveHiddenExportCols(tab, next);
+      return next;
+    });
+  }
+
+  function download() {
+    const headers = visible.map(c => c.label);
+    let rows: (string | number)[][] = [];
+    if (tab === 'inventory') {
+      const cols = visible as ExportCol<InventoryItem>[];
+      rows = inventory.map(item => cols.map(c => c.get(item)));
+    } else if (tab === 'purchases') {
+      const cols = visible as ExportCol<Purchase>[];
+      rows = purchases.map(item => cols.map(c => c.get(item)));
+    } else if (tab === 'sales') {
+      const cols = visible as ExportCol<SaleRecord>[];
+      rows = sales.map(item => cols.map(c => c.get(item)));
+    }
+    const stamp = new Date().toISOString().slice(0, 10);
+    const gameSuffix = gameFilter ? `-${gameFilter}` : '';
+    downloadCSV(`fg-collect-${tab}${gameSuffix}-${stamp}.csv`, toCSV(headers, rows));
+  }
+
+  return (
+    <div className="relative inline-flex">
+      <button
+        type="button"
+        onClick={download}
+        className="px-3 py-1.5 text-sm border border-gray-300 rounded-l hover:bg-gray-50"
+        title="Download current tab as CSV (opens in Excel)"
+      >
+        📥 CSV
+      </button>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="px-2 py-1.5 text-sm border-y border-r border-gray-300 rounded-r hover:bg-gray-50"
+        title="Choose which columns to include in the CSV"
+        aria-expanded={open}
+      >
+        ⚙
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded shadow-lg p-3 w-64 text-sm max-h-96 overflow-y-auto">
+            <div className="font-medium text-gray-800 mb-2">Columns in CSV</div>
+            {columns.map(c => (
+              <label key={c.key} className="flex items-center gap-2 py-1 cursor-pointer hover:bg-gray-50 rounded px-1">
+                <input
+                  type="checkbox"
+                  checked={!hidden.has(c.key)}
+                  onChange={() => toggle(c.key)}
+                  className="rounded border-gray-300"
+                />
+                <span className="text-xs text-gray-700">{c.label}</span>
+              </label>
+            ))}
+            <div className="mt-2 pt-2 border-t border-gray-100 flex justify-between text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  const empty = new Set<string>();
+                  saveHiddenExportCols(tab, empty);
+                  setHidden(empty);
+                }}
+                className="text-blue-600 hover:text-blue-800"
+              >
+                Include all
+              </button>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── SalesTable: audit-ready sales manifest ────────────────────────────────────
 //
 // One row per purchase_sales entry. COGS uses the specific-lot cost basis
@@ -2209,6 +2431,13 @@ export default function ManifestPage() {
         </div>
         <div className="flex items-center gap-2 no-print">
           <PrintControls tab={tab} />
+          <ExportControls
+            tab={tab}
+            gameFilter={game}
+            inventory={inventory}
+            purchases={purchases}
+            sales={sales}
+          />
           <select
             value={game}
             onChange={e => setGame(e.target.value)}
