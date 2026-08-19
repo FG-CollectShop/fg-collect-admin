@@ -10,6 +10,60 @@ import {
 
 type Tab = 'inventory' | 'purchases' | 'sales' | 'analytics';
 
+// Columns available to hide in print, per tab. Keys match the `col-<key>`
+// className on the corresponding <th> and <td> elements.
+const PRINT_COLUMNS: Record<Exclude<Tab, 'analytics'>, { key: string; label: string; defaultHidden?: boolean }[]> = {
+  inventory: [
+    { key: 'image',     label: 'Product image', defaultHidden: true },
+    { key: 'qty',       label: 'Qty' },
+    { key: 'cost',      label: 'Cost basis' },
+    { key: 'market',    label: 'Market' },
+    { key: 'liq',       label: 'Liquidation' },
+    { key: 'mkt_pct',   label: '% (Market)',   defaultHidden: true },
+    { key: 'liq_pct',   label: '% (Liq)',      defaultHidden: true },
+    { key: 'xirr',      label: 'XIRR (Mkt)' },
+    { key: 'xirr_liq',  label: 'XIRR (Liq)',   defaultHidden: true },
+    { key: 'platform',  label: 'Platform' },
+    { key: 'location',  label: 'Location' },
+    { key: 'sku_note',  label: 'SKU Note',     defaultHidden: true },
+  ],
+  purchases: [
+    { key: 'image',    label: 'Product image', defaultHidden: true },
+    { key: 'qty',      label: 'Qty' },
+    { key: 'unitcost', label: 'Cost / unit' },
+    { key: 'total',    label: 'Total Paid' },
+    { key: 'date',     label: 'Date' },
+    { key: 'platform', label: 'Platform' },
+  ],
+  sales: [
+    { key: 'game',      label: 'Game' },
+    { key: 'type',      label: 'Type' },
+    { key: 'qty',       label: 'Qty' },
+    { key: 'unit_sale', label: 'Unit $' },
+    { key: 'total',     label: 'Total' },
+    { key: 'cogs',      label: 'COGS' },
+    { key: 'profit',    label: 'Gross P' },
+    { key: 'platform',  label: 'Platform' },
+    { key: 'purchased', label: 'Purchased date', defaultHidden: true },
+    { key: 'notes',     label: 'Notes',          defaultHidden: true },
+  ],
+};
+
+function loadHiddenCols(tab: Tab): Set<string> {
+  if (tab === 'analytics') return new Set();
+  const raw = localStorage.getItem(`manifest.print.hidden.${tab}`);
+  if (raw) {
+    try { return new Set(JSON.parse(raw) as string[]); } catch { /* fall through */ }
+  }
+  // First-run defaults.
+  return new Set(PRINT_COLUMNS[tab].filter(c => c.defaultHidden).map(c => c.key));
+}
+
+function saveHiddenCols(tab: Tab, hidden: Set<string>) {
+  if (tab === 'analytics') return;
+  localStorage.setItem(`manifest.print.hidden.${tab}`, JSON.stringify(Array.from(hidden)));
+}
+
 const GROUP_BY_OPTIONS: { value: AnalyticsGroupBy; label: string }[] = [
   { value: 'item_type',         label: 'Item Type' },
   { value: 'game',              label: 'Game' },
@@ -1318,31 +1372,31 @@ function InventoryTable({
             <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200">
               <SortHeader label="Item"        k="name"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}
                           hint="TCGPlayer product name (auto-filled). Set + type shown below; blue badge = rolled-up lot count." />
-              <SortHeader label="Qty"         k="qty"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+              <SortHeader label="Qty"         k="qty"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right col-qty"
                           hint="Units currently on hand across all lots (purchased minus sold)." />
-              <SortHeader label="Cost Basis"  k="cost"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+              <SortHeader label="Cost Basis"  k="cost"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right col-cost"
                           hint="Total invested in this SKU for on-hand units. Per-unit shown below (weighted average across lots)." />
-              <SortHeader label="Market"      k="market"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+              <SortHeader label="Market"      k="market"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right col-market"
                           hint="Current total market value = per-unit market × qty on hand. Per-unit shown below." />
-              <SortHeader label="Liquidation" k="liq"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+              <SortHeader label="Liquidation" k="liq"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right col-liq"
                           hint="Assumed sale value = market × 85% × qty. Approximates net proceeds after fees / competitive undercutting." />
-              <SortHeader label="% (Market)"  k="mkt_pct"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+              <SortHeader label="% (Market)"  k="mkt_pct"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right col-mkt_pct"
                           hint="Unrealized gain vs cost basis at market prices: (market − cost) / cost × 100." />
-              <SortHeader label="% (Liq)"     k="liq_pct"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+              <SortHeader label="% (Liq)"     k="liq_pct"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right col-liq_pct"
                           hint="Unrealized gain vs cost basis at liquidation value: (liq − cost) / cost × 100. What you'd actually net if you sold today." />
-              <SortHeader label="XIRR (Mkt)"  k="xirr"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+              <SortHeader label="XIRR (Mkt)"  k="xirr"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right col-xirr"
                           hint="Annualized return assuming you sell at TCGPlayer market. Terminal cash flow = market × qty on hand at today. N/A if held < 30 days or no market price." />
-              <SortHeader label="XIRR (Liq)"  k="xirr_liq" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+              <SortHeader label="XIRR (Liq)"  k="xirr_liq" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right col-xirr_liq"
                           hint="Annualized return you'd actually realize after the 85% liquidation haircut (fees, discounting). This is what hits your bank account." />
-              <SortHeader label="Platform"    k="platform" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}
+              <SortHeader label="Platform"    k="platform" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="col-platform"
                           hint="Distinct stores you bought this SKU from (aggregated across every lot). Read-only — edit per-lot from the Purchases tab or by switching Group to By Lot." />
-              <th className="pb-2 pr-3 font-medium" title="Physical storage location shared across every purchase of the same TCGPlayer product ID. Update it once — applies to every lot of that SKU.">
+              <th className="pb-2 pr-3 font-medium col-location" title="Physical storage location shared across every purchase of the same TCGPlayer product ID. Update it once — applies to every lot of that SKU.">
                 <span className="border-b border-dotted border-gray-400">Location</span>
               </th>
-              <th className="pb-2 pr-3 font-medium" title="Free-text note shared across every purchase of the same TCGPlayer product ID. Persists forever — good for reprint alerts, discontinued flags, keep-forever tags.">
+              <th className="pb-2 pr-3 font-medium col-sku_note" title="Free-text note shared across every purchase of the same TCGPlayer product ID. Persists forever — good for reprint alerts, discontinued flags, keep-forever tags.">
                 <span className="border-b border-dotted border-gray-400">SKU Note</span>
               </th>
-              <th className="pb-2 font-medium" title="Chart = market + XIRR history modal. Edit/Sell/Del = per-lot actions (only shown on single-lot rows; switch to By Lot to act on individual acquisitions).">
+              <th className="pb-2 font-medium no-print" title="Chart = market + XIRR history modal. Edit/Sell/Del = per-lot actions (only shown on single-lot rows; switch to By Lot to act on individual acquisitions).">
                 <span className="border-b border-dotted border-gray-400">Actions</span>
               </th>
             </tr>
@@ -1359,13 +1413,15 @@ function InventoryTable({
                 <tr key={item.id} className="hover:bg-gray-50">
                   <td className="py-3 pr-3">
                     <div className="flex items-center gap-3">
-                      {item.image_url ? (
-                        <a href={item.tcgplayer_url} target="_blank" rel="noopener noreferrer" className="shrink-0">
-                          <img src={item.image_url} alt={item.name} className="w-12 h-12 object-contain rounded border border-gray-100" />
-                        </a>
-                      ) : (
-                        <div className="w-12 h-12 bg-gray-100 rounded border border-gray-200 flex items-center justify-center text-gray-400 text-xs shrink-0">?</div>
-                      )}
+                      <span className="col-image shrink-0">
+                        {item.image_url ? (
+                          <a href={item.tcgplayer_url} target="_blank" rel="noopener noreferrer">
+                            <img src={item.image_url} alt={item.name} className="w-12 h-12 object-contain rounded border border-gray-100" />
+                          </a>
+                        ) : (
+                          <span className="w-12 h-12 bg-gray-100 rounded border border-gray-200 flex items-center justify-center text-gray-400 text-xs">?</span>
+                        )}
+                      </span>
                       <div>
                         <div className="font-medium text-gray-900">
                           {item.tcgplayer_url ? (
@@ -1383,15 +1439,15 @@ function InventoryTable({
                       </div>
                     </div>
                   </td>
-                  <td className="py-3 pr-3 text-right text-gray-700">
+                  <td className="py-3 pr-3 text-right text-gray-700 col-qty">
                     <div className="font-medium">{item.quantity_on_hand}</div>
                     {item.quantity_sold > 0 && <div className="text-xs text-gray-400">{item.quantity_sold} sold</div>}
                   </td>
-                  <td className="py-3 pr-3 text-right text-gray-800" title={`${formatCents(item.unit_cost_basis_cents)} per unit × ${item.quantity_on_hand}`}>
+                  <td className="py-3 pr-3 text-right text-gray-800 col-cost" title={`${formatCents(item.unit_cost_basis_cents)} per unit × ${item.quantity_on_hand}`}>
                     <div className="font-semibold">{formatCents(item.unit_cost_basis_cents * item.quantity_on_hand)}</div>
                     <div className="text-xs text-gray-400">{formatCents(item.unit_cost_basis_cents)}/u</div>
                   </td>
-                  <td className="py-3 pr-3 text-right">
+                  <td className="py-3 pr-3 text-right col-market">
                     <div className="font-semibold text-gray-800" title={item.market_price_cents != null ? `${formatCents(item.market_price_cents)} per unit × ${item.quantity_on_hand}` : ''}>
                       {item.market_price_cents != null
                         ? formatCents(item.market_price_cents * item.quantity_on_hand)
@@ -1399,7 +1455,7 @@ function InventoryTable({
                     </div>
                     <MarketPriceCell item={item} onUpdated={onRefresh} />
                   </td>
-                  <td className="py-3 pr-3 text-right text-amber-600" title={item.liquidation_cents != null ? `${formatCents(item.liquidation_cents)} per unit × ${item.quantity_on_hand}` : ''}>
+                  <td className="py-3 pr-3 text-right text-amber-600 col-liq" title={item.liquidation_cents != null ? `${formatCents(item.liquidation_cents)} per unit × ${item.quantity_on_hand}` : ''}>
                     {item.liquidation_cents != null ? (
                       <>
                         <div className="font-semibold">{formatCents(item.liquidation_cents * item.quantity_on_hand)}</div>
@@ -1407,19 +1463,19 @@ function InventoryTable({
                       </>
                     ) : <span className="text-gray-300">—</span>}
                   </td>
-                  <td className={`py-3 pr-3 text-right font-semibold text-sm ${mktPct == null ? 'text-gray-300' : mktPct >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                  <td className={`py-3 pr-3 text-right font-semibold text-sm col-mkt_pct ${mktPct == null ? 'text-gray-300' : mktPct >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                     {mktPct != null ? (mktPct >= 0 ? '+' : '') + mktPct.toFixed(1) + '%' : '—'}
                   </td>
-                  <td className={`py-3 pr-3 text-right font-semibold text-sm ${liqPct == null ? 'text-gray-300' : liqPct >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                  <td className={`py-3 pr-3 text-right font-semibold text-sm col-liq_pct ${liqPct == null ? 'text-gray-300' : liqPct >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                     {liqPct != null ? (liqPct >= 0 ? '+' : '') + liqPct.toFixed(1) + '%' : '—'}
                   </td>
-                  <td className={`py-3 pr-3 text-right text-sm font-medium ${item.xirr == null ? 'text-gray-300' : item.xirr >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                  <td className={`py-3 pr-3 text-right text-sm font-medium col-xirr ${item.xirr == null ? 'text-gray-300' : item.xirr >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
                     {item.xirr != null ? (item.xirr >= 0 ? '+' : '') + (item.xirr * 100).toFixed(1) + '%' : '—'}
                   </td>
-                  <td className={`py-3 pr-3 text-right text-sm font-medium ${item.xirr_liq == null ? 'text-gray-300' : item.xirr_liq >= 0 ? 'text-blue-600 opacity-80' : 'text-red-500 opacity-80'}`}>
+                  <td className={`py-3 pr-3 text-right text-sm font-medium col-xirr_liq ${item.xirr_liq == null ? 'text-gray-300' : item.xirr_liq >= 0 ? 'text-blue-600 opacity-80' : 'text-red-500 opacity-80'}`}>
                     {item.xirr_liq != null ? (item.xirr_liq >= 0 ? '+' : '') + (item.xirr_liq * 100).toFixed(1) + '%' : '—'}
                   </td>
-                  <td className="py-3 pr-3">
+                  <td className="py-3 pr-3 col-platform">
                     {(() => {
                       const list = item.platforms && item.platforms.length > 0
                         ? item.platforms
@@ -1433,13 +1489,13 @@ function InventoryTable({
                       );
                     })()}
                   </td>
-                  <td className="py-3 pr-3">
+                  <td className="py-3 pr-3 col-location">
                     <SKULocationCell item={item} onUpdated={onRefresh} />
                   </td>
-                  <td className="py-3 pr-3">
+                  <td className="py-3 pr-3 col-sku_note">
                     <SKUNoteCell item={item} onUpdated={onRefresh} />
                   </td>
-                  <td className="py-3">
+                  <td className="py-3 no-print">
                     <div className="flex gap-2 items-center flex-wrap">
                     {item.tcgplayer_product_id != null && (
                       <button
@@ -1589,17 +1645,17 @@ function PurchasesTable({ items, onRefresh, platforms }: { items: Purchase[]; on
           <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200">
             <SortHeader label="Item"        k="name"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}
                         hint="Product name and set as entered. Each row is one purchase (lot) — same SKU bought twice = two rows." />
-            <SortHeader label="Qty"         k="qty"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+            <SortHeader label="Qty"         k="qty"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right col-qty"
                         hint="Units in this specific acquisition. Doesn't reflect sales — see Inventory tab for on-hand qty." />
-            <SortHeader label="Cost / unit" k="unitcost" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+            <SortHeader label="Cost / unit" k="unitcost" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right col-unitcost"
                         hint="Per-unit price paid on this order (before shipping / fees unless you rolled them in)." />
-            <SortHeader label="Total Paid"  k="total"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+            <SortHeader label="Total Paid"  k="total"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right col-total"
                         hint="qty × cost/unit for this lot. Sum across lots for total invested per SKU." />
-            <SortHeader label="Date"        k="date"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}
+            <SortHeader label="Date"        k="date"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="col-date"
                         hint="Purchase date you entered — this drives XIRR, not the timestamp of when you added it to the system." />
-            <SortHeader label="Platform"    k="platform" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}
+            <SortHeader label="Platform"    k="platform" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="col-platform"
                         hint="Where you bought this lot. Free-text; suggestions come from other platforms already in your data." />
-            <th className="pb-2 font-medium"></th>
+            <th className="pb-2 font-medium no-print"></th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
@@ -1607,25 +1663,27 @@ function PurchasesTable({ items, onRefresh, platforms }: { items: Purchase[]; on
             <tr key={item.id} className="hover:bg-gray-50">
               <td className="py-3 pr-3">
                 <div className="flex items-center gap-3">
-                  {item.image_url ? (
-                    <img src={item.image_url} alt={item.name} className="w-10 h-10 object-contain rounded border border-gray-100 shrink-0" />
-                  ) : (
-                    <div className="w-10 h-10 bg-gray-100 rounded border border-gray-200 shrink-0" />
-                  )}
+                  <span className="col-image shrink-0">
+                    {item.image_url ? (
+                      <img src={item.image_url} alt={item.name} className="w-10 h-10 object-contain rounded border border-gray-100" />
+                    ) : (
+                      <span className="w-10 h-10 bg-gray-100 rounded border border-gray-200 block" />
+                    )}
+                  </span>
                   <div>
                     <div className="font-medium text-gray-900">{item.name}</div>
                     <div className="text-xs text-gray-500 mt-0.5">{item.set_name ?? item.game} · {item.item_type.replace(/_/g, ' ')}</div>
                   </div>
                 </div>
               </td>
-              <td className="py-3 pr-3 text-right text-gray-700">{item.quantity}</td>
-              <td className="py-3 pr-3 text-right text-gray-600">{formatCents(item.unit_cost_basis_cents)}</td>
-              <td className="py-3 pr-3 text-right font-medium text-gray-800">{formatCents(item.unit_cost_basis_cents * item.quantity)}</td>
-              <td className="py-3 pr-3 text-gray-600">{item.purchased_at}</td>
-              <td className="py-3 pr-3">
+              <td className="py-3 pr-3 text-right text-gray-700 col-qty">{item.quantity}</td>
+              <td className="py-3 pr-3 text-right text-gray-600 col-unitcost">{formatCents(item.unit_cost_basis_cents)}</td>
+              <td className="py-3 pr-3 text-right font-medium text-gray-800 col-total">{formatCents(item.unit_cost_basis_cents * item.quantity)}</td>
+              <td className="py-3 pr-3 text-gray-600 col-date">{item.purchased_at}</td>
+              <td className="py-3 pr-3 col-platform">
                 <PlatformCell item={item} platforms={platforms} onUpdated={onRefresh} />
               </td>
-              <td className="py-3">
+              <td className="py-3 no-print">
                 <div className="flex gap-2 items-center">
                   <button
                     onClick={() => setEditing(item)}
@@ -1721,6 +1779,107 @@ function AnalyticsTable({ groups }: { groups: AnalyticsGroup[] }) {
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
+
+// ── PrintControls: Print button + column-picker popover ─────────────────────
+//
+// The gear icon opens a popover that lists every column available on the
+// current tab. Toggling a checkbox flips its class in the injected
+// `<style>` block so print output hides / shows that column immediately.
+// Selection is per-tab and persists in localStorage.
+
+function PrintControls({ tab }: { tab: Tab }) {
+  const [open, setOpen] = useState(false);
+  const [hidden, setHidden] = useState<Set<string>>(() => loadHiddenCols(tab));
+
+  // Re-load defaults when the user switches tabs.
+  useEffect(() => { setHidden(loadHiddenCols(tab)); }, [tab]);
+
+  const columns = tab === 'analytics' ? [] : PRINT_COLUMNS[tab];
+
+  function toggle(key: string) {
+    setHidden(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      saveHiddenCols(tab, next);
+      return next;
+    });
+  }
+
+  // Build an @media print stylesheet that hides tagged columns.
+  const hideCss = Array.from(hidden)
+    .map(k => `.manifest-root .col-${k} { display: none !important; }`)
+    .join('\n');
+
+  return (
+    <>
+      {hideCss && <style>{`@media print { ${hideCss} }`}</style>}
+      <div className="relative inline-flex">
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className="px-3 py-1.5 text-sm border border-gray-300 rounded-l hover:bg-gray-50"
+          title="Print the current tab with the active filters"
+        >
+          🖨 Print
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          className="px-2 py-1.5 text-sm border-y border-r border-gray-300 rounded-r hover:bg-gray-50"
+          title="Choose which columns to print"
+          aria-expanded={open}
+        >
+          ⚙
+        </button>
+        {open && (
+          <>
+            <div
+              className="fixed inset-0 z-10"
+              onClick={() => setOpen(false)}
+            />
+            <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded shadow-lg p-3 w-56 text-sm">
+              <div className="font-medium text-gray-800 mb-2">Columns in print</div>
+              {columns.length === 0 && (
+                <div className="text-xs text-gray-500">Analytics tab prints as-is.</div>
+              )}
+              {columns.map(c => (
+                <label key={c.key} className="flex items-center gap-2 py-1 cursor-pointer hover:bg-gray-50 rounded px-1">
+                  <input
+                    type="checkbox"
+                    checked={!hidden.has(c.key)}
+                    onChange={() => toggle(c.key)}
+                    className="rounded border-gray-300"
+                  />
+                  <span className="text-xs text-gray-700">{c.label}</span>
+                </label>
+              ))}
+              <div className="mt-2 pt-2 border-t border-gray-100 flex justify-between text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const empty = new Set<string>();
+                    saveHiddenCols(tab, empty);
+                    setHidden(empty);
+                  }}
+                  className="text-blue-600 hover:text-blue-800"
+                >
+                  Show all
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
 
 // ── SalesTable: audit-ready sales manifest ────────────────────────────────────
 //
@@ -1857,20 +2016,20 @@ function SalesTable({ items }: { items: SaleRecord[] }) {
             <tr className="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200">
               <SortHeader label="Sold"      k="sold_at"   sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <SortHeader label="Item"      k="name"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <SortHeader label="Game"      k="game"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <th className="pb-2 pr-3 font-medium">Type</th>
-              <SortHeader label="Qty"       k="qty"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right" />
-              <SortHeader label="Unit $"    k="unit_sale" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+              <SortHeader label="Game"      k="game"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="col-game" />
+              <th className="pb-2 pr-3 font-medium col-type">Type</th>
+              <SortHeader label="Qty"       k="qty"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right col-qty" />
+              <SortHeader label="Unit $"    k="unit_sale" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right col-unit_sale"
                           hint="Per-unit sale price recorded on the sale row." />
-              <SortHeader label="Total"     k="total"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+              <SortHeader label="Total"     k="total"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right col-total"
                           hint="quantity × unit sale price." />
-              <SortHeader label="COGS"      k="cogs"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+              <SortHeader label="COGS"      k="cogs"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right col-cogs"
                           hint="Cost of goods sold = quantity × unit_cost_basis of the specific source purchase lot. Specific-lot method (not FIFO-averaged)." />
-              <SortHeader label="Gross P"   k="profit"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right"
+              <SortHeader label="Gross P"   k="profit"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="text-right col-profit"
                           hint="Total − COGS. Does not include shipping / fees / platform cuts — do those separately in your tax filing." />
-              <SortHeader label="Platform"  k="platform"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <th className="pb-2 font-medium">Purchased</th>
-              <th className="pb-2 font-medium">Notes</th>
+              <SortHeader label="Platform"  k="platform"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="col-platform" />
+              <th className="pb-2 font-medium col-purchased">Purchased</th>
+              <th className="pb-2 font-medium col-notes">Notes</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -1890,21 +2049,21 @@ function SalesTable({ items }: { items: SaleRecord[] }) {
                     <div className="text-gray-900">{s.name}</div>
                     {s.set_name && <div className="text-xs text-gray-500">{s.set_name}</div>}
                   </td>
-                  <td className="py-2 pr-3 text-gray-500 uppercase text-xs">{s.game}</td>
-                  <td className="py-2 pr-3 text-gray-500 text-xs">{s.item_type}</td>
-                  <td className="py-2 pr-3 text-right font-mono text-gray-700">{s.quantity}</td>
-                  <td className="py-2 pr-3 text-right font-mono text-gray-700">{formatCents(s.unit_sale_price_cents)}</td>
-                  <td className="py-2 pr-3 text-right font-mono text-gray-900">{formatCents(s.total_sale_cents)}</td>
-                  <td className="py-2 pr-3 text-right font-mono text-amber-600">{formatCents(s.cogs_cents)}</td>
-                  <td className={`py-2 pr-3 text-right font-mono ${s.gross_profit_cents >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                  <td className="py-2 pr-3 text-gray-500 uppercase text-xs col-game">{s.game}</td>
+                  <td className="py-2 pr-3 text-gray-500 text-xs col-type">{s.item_type}</td>
+                  <td className="py-2 pr-3 text-right font-mono text-gray-700 col-qty">{s.quantity}</td>
+                  <td className="py-2 pr-3 text-right font-mono text-gray-700 col-unit_sale">{formatCents(s.unit_sale_price_cents)}</td>
+                  <td className="py-2 pr-3 text-right font-mono text-gray-900 col-total">{formatCents(s.total_sale_cents)}</td>
+                  <td className="py-2 pr-3 text-right font-mono text-amber-600 col-cogs">{formatCents(s.cogs_cents)}</td>
+                  <td className={`py-2 pr-3 text-right font-mono col-profit ${s.gross_profit_cents >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                     {formatCents(s.gross_profit_cents)}
                     {profitPct != null && (
                       <div className="text-xs opacity-70">{(profitPct >= 0 ? '+' : '') + profitPct.toFixed(0)}%</div>
                     )}
                   </td>
-                  <td className="py-2 pr-3 text-gray-600 text-xs">{s.sale_platform ?? '—'}</td>
-                  <td className="py-2 pr-3 text-gray-500 text-xs whitespace-nowrap">{s.purchased_at}</td>
-                  <td className="py-2 pr-3 text-gray-500 text-xs max-w-[200px] whitespace-normal">{s.sale_notes ?? ''}</td>
+                  <td className="py-2 pr-3 text-gray-600 text-xs col-platform">{s.sale_platform ?? '—'}</td>
+                  <td className="py-2 pr-3 text-gray-500 text-xs whitespace-nowrap col-purchased">{s.purchased_at}</td>
+                  <td className="py-2 pr-3 text-gray-500 text-xs max-w-[200px] whitespace-normal col-notes">{s.sale_notes ?? ''}</td>
                 </tr>
               );
             })}
@@ -2007,18 +2166,33 @@ export default function ManifestPage() {
       {/* Print-only stylesheet: keeps the manifest table visible, drops everything else. */}
       <style>{`
         @media print {
-          @page { size: letter landscape; margin: 12mm; }
+          @page { size: letter landscape; margin: 10mm; }
           body * { visibility: hidden; }
           .manifest-root, .manifest-root * { visibility: visible; }
           .manifest-root { position: absolute; left: 0; top: 0; width: 100%; }
-          .no-print { display: none !important; }
-          /* Compact rows + remove chrome */
-          .manifest-root table { border-collapse: collapse; font-size: 10px; }
-          .manifest-root th, .manifest-root td { padding: 3px 6px !important; }
+          .no-print, .no-print * { display: none !important; visibility: hidden !important; }
+          /* Compact table */
+          .manifest-root table { border-collapse: collapse; font-size: 9px; width: 100%; }
+          .manifest-root th, .manifest-root td { padding: 2px 4px !important; vertical-align: top; }
+          .manifest-root tbody tr { border-bottom: 1px solid #eee; }
           .manifest-root .shadow-sm { box-shadow: none !important; }
-          .manifest-root input, .manifest-root select, .manifest-root button { display: none !important; }
+          /* Hide filter controls (they're inputs/selects), but click-to-edit
+             buttons in cells still need to show their value — un-button them. */
+          .manifest-root input, .manifest-root select, .manifest-root textarea { display: none !important; }
+          .manifest-root td button {
+            all: unset !important;
+            display: inline !important;
+            color: inherit !important;
+            font-size: inherit !important;
+            padding: 0 !important;
+            border: none !important;
+          }
+          /* Product image column is expensive to print — shrink or hide */
+          .manifest-root td img { width: 18px !important; height: 18px !important; }
           .manifest-root a { color: black; text-decoration: none; }
           .print-timestamp { display: block !important; font-size: 9px; color: #666; margin-bottom: 6px; }
+          /* Column-picker: hide any column whose header/cell is tagged with .print-hide */
+          .manifest-root .print-hide { display: none !important; }
         }
         .print-timestamp { display: none; }
       `}</style>
@@ -2034,14 +2208,7 @@ export default function ManifestPage() {
           <p className="text-xs text-gray-500 mt-0.5">Purchase &amp; sale ledger · inventory is derived</p>
         </div>
         <div className="flex items-center gap-2 no-print">
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50"
-            title="Print the current tab (Inventory / Purchases / Analytics) with the active filters"
-          >
-            🖨 Print
-          </button>
+          <PrintControls tab={tab} />
           <select
             value={game}
             onChange={e => setGame(e.target.value)}
