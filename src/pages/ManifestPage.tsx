@@ -74,6 +74,18 @@ const EXPORT_COLUMNS: {
     { key: 'total_market', label: 'Total market ($)',  get: r => r.market_price_cents != null ? (r.market_price_cents * r.quantity_on_hand / 100).toFixed(2) : '' },
     { key: 'unit_liq',     label: 'Unit liquidation ($)', get: r => r.liquidation_cents != null ? (r.liquidation_cents / 100).toFixed(2) : '' },
     { key: 'total_liq',    label: 'Total liquidation ($)', get: r => r.liquidation_cents != null ? (r.liquidation_cents * r.quantity_on_hand / 100).toFixed(2) : '' },
+    { key: 'gain_mkt',     label: 'Unrealized gain — market ($)', get: r => r.market_price_cents != null
+        ? ((r.market_price_cents - r.unit_cost_basis_cents) * r.quantity_on_hand / 100).toFixed(2)
+        : '' },
+    { key: 'gain_mkt_pct', label: 'Unrealized gain — market (%)', get: r => r.market_price_cents != null && r.unit_cost_basis_cents > 0
+        ? ((r.market_price_cents - r.unit_cost_basis_cents) / r.unit_cost_basis_cents * 100).toFixed(2) + '%'
+        : '' },
+    { key: 'gain_liq',     label: 'Unrealized gain — liquidation ($)', get: r => r.liquidation_cents != null
+        ? ((r.liquidation_cents - r.unit_cost_basis_cents) * r.quantity_on_hand / 100).toFixed(2)
+        : '' },
+    { key: 'gain_liq_pct', label: 'Unrealized gain — liquidation (%)', get: r => r.liquidation_cents != null && r.unit_cost_basis_cents > 0
+        ? ((r.liquidation_cents - r.unit_cost_basis_cents) / r.unit_cost_basis_cents * 100).toFixed(2) + '%'
+        : '' },
     { key: 'xirr_mkt',     label: 'XIRR (market)',     get: r => r.xirr != null ? (r.xirr * 100).toFixed(2) + '%' : '' },
     { key: 'xirr_liq',     label: 'XIRR (liq)',        get: r => r.xirr_liq != null ? (r.xirr_liq * 100).toFixed(2) + '%' : '' },
     { key: 'platforms',    label: 'Platform(s)',       get: r => (r.platforms && r.platforms.length > 0 ? r.platforms.join('; ') : (r.purchase_platform ?? '')) },
@@ -111,6 +123,9 @@ const EXPORT_COLUMNS: {
     { key: 'unit_cost',    label: 'Cost basis / unit ($)', get: r => (r.unit_cost_basis_cents / 100).toFixed(2) },
     { key: 'cogs',         label: 'COGS ($)',           get: r => (r.cogs_cents / 100).toFixed(2) },
     { key: 'gross_profit', label: 'Gross profit ($)',   get: r => (r.gross_profit_cents / 100).toFixed(2) },
+    { key: 'gross_profit_pct', label: 'Gross profit (%)', get: r => r.cogs_cents > 0
+        ? (r.gross_profit_cents / r.cogs_cents * 100).toFixed(2) + '%'
+        : '' },
     { key: 'platform',     label: 'Sale platform',      get: r => r.sale_platform ?? '' },
     { key: 'purchased_at', label: 'Purchased date',     get: r => r.purchased_at },
     { key: 'purchase_platform', label: 'Purchase platform', get: r => r.purchase_platform ?? '' },
