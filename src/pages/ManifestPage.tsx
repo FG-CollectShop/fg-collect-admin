@@ -1894,7 +1894,7 @@ function InventoryTable({
                       >
                         {delisting === item.listing_id ? '…' : 'Delist'}
                       </button>
-                    ) : item.publish_state !== 'published' && (
+                    ) : (
                       (() => {
                         const purchaseId = item.lot_ids && item.lot_ids.length === 1
                           ? item.lot_ids[0]
