@@ -2580,8 +2580,14 @@ export default function ManifestPage() {
       )}
 
       {/* Add purchase */}
-      <div className="no-print">
+      <div className="no-print flex items-start gap-2">
         <AddPurchaseForm onAdded={() => { load(); refreshPlatforms(); }} platforms={platforms} />
+        <a
+          href="/inventory/graded/new"
+          className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded text-sm font-medium whitespace-nowrap"
+        >
+          + Add Graded Slab
+        </a>
       </div>
 
       {/* Tabs */}
