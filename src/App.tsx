@@ -7,17 +7,13 @@ import { ErrorBoundary } from "@/layout/ErrorBoundary";
 import { LoginPage } from "@/pages/LoginPage";
 import { SetsPage } from "@/pages/SetsPage";
 import { SetDetailPage } from "@/pages/SetDetailPage";
-import { InventoryPage } from "@/pages/InventoryPage";
-import { InventoryNewPage } from "@/pages/InventoryNewPage";
 import { GradedInventoryPage } from "@/pages/GradedInventoryPage";
 import { GradedIntakePage } from "@/pages/GradedIntakePage";
 import { PricingRulesPage } from "@/pages/PricingRulesPage";
 import { BinsPage } from "@/pages/BinsPage";
 import { WhereIsPage } from "@/pages/WhereIsPage";
 import { AcquisitionsPage } from "@/pages/AcquisitionsPage";
-import { ListingsPage } from "@/pages/ListingsPage";
 import { PrintLabelsPage } from "@/pages/PrintLabelsPage";
-import { OrdersPage } from "@/pages/OrdersPage";
 import { PortfolioGamesPage } from "@/pages/PortfolioGamesPage";
 import { PortfolioSetsPage } from "@/pages/PortfolioSetsPage";
 import { PortfolioSetCardsPage } from "@/pages/PortfolioSetCardsPage";
@@ -56,11 +52,9 @@ export function App() {
                   <AppShell>
                     <ErrorBoundary>
                       <Routes>
-                      <Route path="/" element={<Navigate to="/portfolio" replace />} />
+                      <Route path="/" element={<Navigate to="/manifest" replace />} />
                       <Route path="/sets" element={<SetsPage />} />
                       <Route path="/sets/:id" element={<SetDetailPage />} />
-                      <Route path="/inventory" element={<InventoryPage />} />
-                      <Route path="/inventory/new" element={<InventoryNewPage />} />
                       <Route path="/inventory/graded" element={<GradedInventoryPage />} />
                       <Route path="/inventory/graded/new" element={<GradedIntakePage />} />
                       <Route path="/inventory/print" element={<PrintLabelsPage />} />
@@ -69,8 +63,6 @@ export function App() {
                       <Route path="/where" element={<WhereIsPage />} />
                       <Route path="/acquisitions" element={<AcquisitionsPage />} />
                       <Route path="/acquisitions/:id" element={<AcquisitionsPage />} />
-                      <Route path="/listings" element={<ListingsPage />} />
-                      <Route path="/orders" element={<OrdersPage />} />
                       <Route path="/manifest" element={<ManifestPage />} />
                       <Route path="/portfolio" element={<PortfolioGamesPage />} />
                       <Route path="/portfolio/:game" element={<PortfolioSetsPage />} />

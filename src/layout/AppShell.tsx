@@ -5,7 +5,6 @@ import { signOut } from "@/firebase";
 
 const nav: { to: string; label: string; end?: boolean }[] = [
   { to: "/manifest", label: "Manifest" },
-  { to: "/inventory", label: "Inventory", end: true },
   { to: "/portfolio", label: "Portfolio" },
   { to: "/sets", label: "Sets" },
   { to: "/inventory/graded", label: "Graded" },
