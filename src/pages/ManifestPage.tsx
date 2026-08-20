@@ -285,6 +285,11 @@ interface LineItem {
   quantity: string;
   unit_cost_basis_cents: string;
   market_price_cents: string;
+  // Singles / graded card fields
+  condition: string;
+  language: string;
+  foil: boolean;
+  card_number: string;
   looking_up: boolean;
   lookup_err: string | null;
   save_status: 'pending' | 'saving' | 'saved' | 'error';
@@ -299,6 +304,10 @@ const emptyLine = (): LineItem => ({
   quantity: '1',
   unit_cost_basis_cents: '',
   market_price_cents: '',
+  condition: 'NM',
+  language: 'English',
+  foil: false,
+  card_number: '',
   looking_up: false,
   lookup_err: null,
   save_status: 'pending',
@@ -376,6 +385,7 @@ function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platform
       }
       updateLine(line.key, { save_status: 'saving', save_err: null });
       try {
+        const isSingle = line.item_type === 'single' || line.item_type === 'graded';
         await createPurchase({
           game: shared.game,
           name: line.name,
@@ -387,6 +397,10 @@ function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platform
           purchased_at: shared.purchased_at,
           purchase_platform: shared.purchase_platform || undefined,
           notes: shared.notes || undefined,
+          condition: isSingle && line.condition ? line.condition : undefined,
+          language: isSingle && line.language ? line.language : undefined,
+          foil: isSingle ? line.foil : undefined,
+          card_number: isSingle && line.card_number ? line.card_number : undefined,
         });
         updateLine(line.key, { save_status: 'saved' });
       } catch (err) {
@@ -466,13 +480,20 @@ function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platform
       </div>
 
       {/* Line items */}
-      <div className="border border-gray-200 rounded overflow-x-auto bg-white">
+      {(() => {
+        const hasSingles = lines.some(l => l.item_type === 'single' || l.item_type === 'graded');
+        return (
+        <div className="border border-gray-200 rounded overflow-x-auto bg-white">
         <table className="w-full text-xs">
           <thead>
             <tr className="text-left text-[10px] text-gray-500 uppercase tracking-wider bg-gray-50 border-b border-gray-200">
               <th className="px-2 py-1.5 font-medium w-24">TCG ID</th>
               <th className="px-2 py-1.5 font-medium">Name *</th>
               <th className="px-2 py-1.5 font-medium w-40">Type</th>
+              {hasSingles && <th className="px-2 py-1.5 font-medium w-20">Cond</th>}
+              {hasSingles && <th className="px-2 py-1.5 font-medium w-24">Lang</th>}
+              {hasSingles && <th className="px-2 py-1.5 font-medium w-12 text-center">Foil</th>}
+              {hasSingles && <th className="px-2 py-1.5 font-medium w-24">#</th>}
               <th className="px-2 py-1.5 font-medium w-16 text-right">Qty *</th>
               <th className="px-2 py-1.5 font-medium w-24 text-right">Cost / unit *</th>
               <th className="px-2 py-1.5 font-medium w-24 text-right">Market</th>
@@ -481,7 +502,9 @@ function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platform
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {lines.map(line => (
+            {lines.map(line => {
+              const isSingle = line.item_type === 'single' || line.item_type === 'graded';
+              return (
               <tr key={line.key} className={line.save_status === 'error' ? 'bg-red-50' : line.save_status === 'saved' ? 'bg-green-50' : ''}>
                 <td className="px-2 py-1.5 align-top">
                   <input
@@ -512,6 +535,36 @@ function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platform
                     {ITEM_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 </td>
+                {hasSingles && (
+                  <td className="px-2 py-1.5 align-top">
+                    {isSingle ? (
+                      <select value={line.condition} onChange={e => updateLine(line.key, { condition: e.target.value })} className={cellInput}>
+                        {['NM','LP','MP','HP','DMG'].map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    ) : <span className="text-gray-300">—</span>}
+                  </td>
+                )}
+                {hasSingles && (
+                  <td className="px-2 py-1.5 align-top">
+                    {isSingle ? (
+                      <input list="lang-suggestions" value={line.language} onChange={e => updateLine(line.key, { language: e.target.value })} className={cellInput} placeholder="English" />
+                    ) : <span className="text-gray-300">—</span>}
+                  </td>
+                )}
+                {hasSingles && (
+                  <td className="px-2 py-1.5 align-top text-center">
+                    {isSingle ? (
+                      <input type="checkbox" checked={line.foil} onChange={e => updateLine(line.key, { foil: e.target.checked })} className="w-4 h-4" />
+                    ) : <span className="text-gray-300">—</span>}
+                  </td>
+                )}
+                {hasSingles && (
+                  <td className="px-2 py-1.5 align-top">
+                    {isSingle ? (
+                      <input value={line.card_number} onChange={e => updateLine(line.key, { card_number: e.target.value })} className={cellInput} placeholder="001/191" />
+                    ) : <span className="text-gray-300">—</span>}
+                  </td>
+                )}
                 <td className="px-2 py-1.5 align-top">
                   <input
                     type="number"
@@ -561,11 +614,16 @@ function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platform
                   </button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
-      </div>
-
+        </div>
+        );
+      })()}
+      <datalist id="lang-suggestions">
+        {['English','Japanese','Korean','Chinese','German','French','Italian','Spanish','Portuguese'].map(l => <option key={l} value={l} />)}
+      </datalist>
       <div className="flex items-center gap-2 mt-3">
         <button type="button" onClick={addLine} className="text-sm text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 px-3 py-1 rounded">
           + Add line
@@ -1558,6 +1616,15 @@ function InventoryTable({
                             <span className="ml-1.5 inline-block px-1.5 py-0 rounded bg-blue-100 text-blue-700 text-[10px] font-medium">
                               {item.lot_count} lots
                             </span>
+                          )}
+                          {item.condition && (
+                            <span className="ml-1.5 inline-block px-1.5 py-0 rounded bg-green-100 text-green-800 text-[10px] font-medium">{item.condition}</span>
+                          )}
+                          {item.foil && (
+                            <span className="ml-1 inline-block px-1.5 py-0 rounded bg-yellow-100 text-yellow-800 text-[10px] font-medium">Foil</span>
+                          )}
+                          {item.language && item.language !== 'English' && (
+                            <span className="ml-1 inline-block px-1.5 py-0 rounded bg-purple-100 text-purple-800 text-[10px] font-medium">{item.language}</span>
                           )}
                         </div>
                       </div>

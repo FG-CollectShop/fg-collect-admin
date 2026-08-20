@@ -39,6 +39,11 @@ export interface Purchase {
   market_price_at?: string;
   notes?: string;
   created_at: string;
+  // Singles / graded card fields
+  condition?: string;
+  language?: string;
+  foil?: boolean;
+  card_number?: string;
 }
 
 export interface InventoryItem extends Purchase {
@@ -83,6 +88,11 @@ export interface CreatePurchaseReq {
   purchase_platform?: Platform;
   market_price_cents?: number;
   notes?: string;
+  // Singles / graded card fields
+  condition?: string;
+  language?: string;
+  foil?: boolean;
+  card_number?: string;
 }
 
 export interface RecordSaleReq {
