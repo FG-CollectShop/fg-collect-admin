@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   listInventory, listPurchases, listPlatforms, getManifestSummary, getManifestAnalytics,
   createPurchase, updatePurchase, deletePurchase, recordSale, refreshPrice, putSKUNote,
-  putSKULocation, listSales,
+  putSKULocation, listSales, promotePurchase, delistListing,
   lookupTCGProduct, getSKUHistory, putSKUHistoryPoint, deleteSKUHistoryPoint,
   InventoryItem, Purchase, ManifestSummary, AnalyticsGroup, AnalyticsGroupBy, InventoryGroup,
   SKUHistoryPoint, ItemType, Platform, SaleRecord, formatCents,
@@ -296,11 +296,19 @@ interface LineItem {
   save_err: string | null;
 }
 
-const emptyLine = (): LineItem => ({
+export type ManifestCategory = 'sealed' | 'singles' | 'graded';
+
+function matchesCategory(itemType: string, category: ManifestCategory): boolean {
+  if (category === 'singles') return itemType === 'single';
+  if (category === 'graded') return itemType === 'graded';
+  return itemType !== 'single' && itemType !== 'graded';
+}
+
+const emptyLine = (defaultType: ItemType = 'booster_box'): LineItem => ({
   key: Math.random().toString(36).slice(2),
   tcgplayer_product_id: '',
   name: '',
-  item_type: 'booster_box',
+  item_type: defaultType,
   quantity: '1',
   unit_cost_basis_cents: '',
   market_price_cents: '',
@@ -314,7 +322,7 @@ const emptyLine = (): LineItem => ({
   save_err: null,
 });
 
-function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platforms: string[] }) {
+function AddPurchaseForm({ onAdded, platforms, defaultItemType = 'booster_box' }: { onAdded: () => void; platforms: string[]; defaultItemType?: ItemType }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [shared, setShared] = useState({
@@ -323,7 +331,7 @@ function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platform
     purchase_platform: '',
     notes: '',
   });
-  const [lines, setLines] = useState<LineItem[]>([emptyLine()]);
+  const [lines, setLines] = useState<LineItem[]>([emptyLine(defaultItemType)]);
 
   const setSharedField = (k: keyof typeof shared) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setShared(s => ({ ...s, [k]: e.target.value }));
@@ -333,7 +341,7 @@ function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platform
   }
 
   function addLine() {
-    setLines(ls => [...ls, emptyLine()]);
+    setLines(ls => [...ls, emptyLine(defaultItemType)]);
   }
 
   function removeLine(key: string) {
@@ -412,7 +420,7 @@ function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platform
     onAdded();
     if (allOk) {
       // Reset form for the next store visit.
-      setLines([emptyLine()]);
+      setLines([emptyLine(defaultItemType)]);
       setShared(s => ({ ...s, notes: '' }));
       setOpen(false);
     }
@@ -638,6 +646,125 @@ function AddPurchaseForm({ onAdded, platforms }: { onAdded: () => void; platform
         </div>
       </div>
     </form>
+  );
+}
+
+// ── Publish-state chip ────────────────────────────────────────────────────────
+
+function PublishStateChip({ state, error }: { state?: string; error?: string }) {
+  if (!state || state === 'draft') return null;
+  if (state === 'published') {
+    return (
+      <span
+        className="inline-block px-1.5 py-0 rounded bg-emerald-100 text-emerald-800 text-[10px] font-medium"
+        title={error ? `Sync error: ${error}` : 'Listed on WooCommerce'}
+      >
+        {error ? '⚠ WC error' : '✓ Listed'}
+      </span>
+    );
+  }
+  if (state === 'delisted') {
+    return (
+      <span className="inline-block px-1.5 py-0 rounded bg-gray-100 text-gray-500 text-[10px] font-medium">
+        Delisted
+      </span>
+    );
+  }
+  return null;
+}
+
+// ── List to WooCommerce Modal ─────────────────────────────────────────────────
+
+function ListToWCModal({
+  item,
+  purchaseId,
+  onClose,
+  onListed,
+}: {
+  item: InventoryItem;
+  purchaseId: string;
+  onClose: () => void;
+  onListed: () => void;
+}) {
+  const [price, setPrice] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const marketRef = item.market_price_cents != null
+    ? formatCents(item.market_price_cents)
+    : null;
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const priceCents = Math.round(parseFloat(price) * 100);
+    if (!priceCents || priceCents <= 0) {
+      setError('Enter a valid price');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await promotePurchase(purchaseId, priceCents);
+      onListed();
+      onClose();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to list');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputCls = "w-full border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500";
+  const labelCls = "block text-xs font-medium text-gray-600 mb-1";
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <form onSubmit={submit} className="bg-white border border-gray-200 rounded-lg shadow-lg p-5 w-full max-w-md">
+        <h3 className="text-sm font-semibold text-gray-800 mb-1">List on WooCommerce</h3>
+        <p className="text-xs text-gray-500 mb-4">{item.name}</p>
+
+        <div className="mb-3">
+          <label className={labelCls}>
+            Sale price ($) *
+            {marketRef && (
+              <span className="ml-2 text-gray-400 font-normal">market ref: {marketRef}</span>
+            )}
+          </label>
+          <input
+            autoFocus
+            required
+            type="number"
+            step="0.01"
+            min="0.01"
+            value={price}
+            onChange={e => setPrice(e.target.value)}
+            placeholder="Enter your price"
+            className={inputCls}
+          />
+        </div>
+
+        <div className="mb-4 text-xs text-gray-500 space-y-0.5">
+          <div><span className="font-medium">Game:</span> {item.game} · <span className="font-medium">Type:</span> {item.item_type.replace(/_/g, ' ')}</div>
+          {item.set_name && <div><span className="font-medium">Set:</span> {item.set_name}</div>}
+          <div><span className="font-medium">Qty:</span> {item.quantity_on_hand} on hand</div>
+        </div>
+
+        {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
+
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            disabled={saving}
+            className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-4 py-1.5 rounded text-sm font-medium"
+          >
+            {saving ? 'Listing…' : 'List →'}
+          </button>
+          <button type="button" onClick={onClose} className="text-gray-500 hover:text-gray-700 px-4 py-1.5 text-sm">
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -1445,6 +1572,8 @@ function InventoryTable({
   const [selling, setSelling] = useState<InventoryItem | null>(null);
   const [editing, setEditing] = useState<InventoryItem | null>(null);
   const [history, setHistory] = useState<InventoryItem | null>(null);
+  const [listing, setListing] = useState<{ item: InventoryItem; purchaseId: string } | null>(null);
+  const [delisting, setDelisting] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState('');
   const [sortKey, setSortKey] = useState('cost');
@@ -1489,6 +1618,19 @@ function InventoryTable({
     }
   }
 
+  async function handleDelist(listingId: string) {
+    if (!confirm('Delist this item from WooCommerce?')) return;
+    setDelisting(listingId);
+    try {
+      await delistListing(listingId);
+      onRefresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Delist failed');
+    } finally {
+      setDelisting(null);
+    }
+  }
+
   if (items.length === 0) {
     return <p className="text-gray-400 text-sm py-8 text-center">No inventory yet — add a purchase above.</p>;
   }
@@ -1526,6 +1668,14 @@ function InventoryTable({
           productId={history.tcgplayer_product_id}
           itemName={history.name}
           onClose={() => setHistory(null)}
+        />
+      )}
+      {listing && (
+        <ListToWCModal
+          item={listing.item}
+          purchaseId={listing.purchaseId}
+          onClose={() => setListing(null)}
+          onListed={onRefresh}
         />
       )}
       <div className="flex items-center gap-3 mb-3">
@@ -1625,6 +1775,11 @@ function InventoryTable({
                           )}
                           {item.language && item.language !== 'English' && (
                             <span className="ml-1 inline-block px-1.5 py-0 rounded bg-purple-100 text-purple-800 text-[10px] font-medium">{item.language}</span>
+                          )}
+                          {item.publish_state && (
+                            <span className="ml-1">
+                              <PublishStateChip state={item.publish_state} error={item.wc_sync_error} />
+                            </span>
                           )}
                         </div>
                       </div>
@@ -1728,6 +1883,33 @@ function InventoryTable({
                         Del
                       </button>
                     </>
+                    )}
+                    {/* WC listing actions — show regardless of lot count */}
+                    {item.publish_state === 'published' ? (
+                      <button
+                        onClick={() => item.listing_id && handleDelist(item.listing_id)}
+                        disabled={delisting === item.listing_id}
+                        className="text-xs text-amber-600 hover:text-amber-800 border border-amber-200 hover:border-amber-400 px-2 py-0.5 rounded disabled:opacity-50"
+                        title="Remove from WooCommerce store"
+                      >
+                        {delisting === item.listing_id ? '…' : 'Delist'}
+                      </button>
+                    ) : item.publish_state !== 'published' && (
+                      (() => {
+                        const purchaseId = item.lot_ids && item.lot_ids.length === 1
+                          ? item.lot_ids[0]
+                          : (item.lot_count == null || item.lot_count <= 1 ? item.id : null);
+                        if (!purchaseId) return null;
+                        return (
+                          <button
+                            onClick={() => setListing({ item, purchaseId })}
+                            className="text-xs text-emerald-600 hover:text-emerald-800 border border-emerald-200 hover:border-emerald-400 px-2 py-0.5 rounded"
+                            title="List on WooCommerce store"
+                          >
+                            List →
+                          </button>
+                        );
+                      })()
                     )}
                     </div>
                   </td>
@@ -2393,7 +2575,7 @@ function SalesTable({ items }: { items: SaleRecord[] }) {
   );
 }
 
-export default function ManifestPage() {
+export default function ManifestPage({ category }: { category: ManifestCategory }) {
   const [tab, setTab] = useState<Tab>('inventory');
   const [game, setGame] = useState('');
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -2453,10 +2635,15 @@ export default function ManifestPage() {
     getManifestSummary(game || undefined).then(setSummary).catch(() => setSummary(null));
   }, [game]);
 
-  const totalCost = inventory.reduce((s, i) => s + i.unit_cost_basis_cents * i.quantity_on_hand, 0);
-  const totalMarket = inventory.reduce((s, i) => s + (i.market_price_cents ?? 0) * i.quantity_on_hand, 0);
-  const totalLiquidation = inventory.reduce((s, i) => s + (i.liquidation_cents ?? 0) * i.quantity_on_hand, 0);
-  const hasMarket = inventory.some(i => i.market_price_cents != null);
+  // Category-filtered views — all filtering is client-side since datasets are small.
+  const filteredInventory = inventory.filter(i => matchesCategory(i.item_type, category));
+  const filteredPurchases = purchases.filter(p => matchesCategory(p.item_type, category));
+  const filteredSales = sales.filter(s => matchesCategory(s.item_type, category));
+
+  const totalCost = filteredInventory.reduce((s, i) => s + i.unit_cost_basis_cents * i.quantity_on_hand, 0);
+  const totalMarket = filteredInventory.reduce((s, i) => s + (i.market_price_cents ?? 0) * i.quantity_on_hand, 0);
+  const totalLiquidation = filteredInventory.reduce((s, i) => s + (i.liquidation_cents ?? 0) * i.quantity_on_hand, 0);
+  const hasMarket = filteredInventory.some(i => i.market_price_cents != null);
   const mktPct = hasMarket && totalCost > 0 ? (totalMarket - totalCost) / totalCost * 100 : null;
   const liqPct = hasMarket && totalCost > 0 ? (totalLiquidation - totalCost) / totalCost * 100 : null;
 
@@ -2508,17 +2695,25 @@ export default function ManifestPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Manifest</h1>
-          <p className="text-xs text-gray-500 mt-0.5">Purchase &amp; sale ledger · inventory is derived</p>
+          <h1 className="text-xl font-bold text-gray-900">
+            {category === 'sealed' ? 'Sealed Manifest'
+              : category === 'singles' ? 'Singles'
+              : 'Graded'}
+          </h1>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {category === 'sealed' ? 'Sealed products · booster boxes, ETBs, displays'
+              : category === 'singles' ? 'Individual cards · singles inventory & P&L'
+              : 'Graded slabs · PSA, BGS, CGC, SGC'}
+          </p>
         </div>
         <div className="flex items-center gap-2 no-print">
           <PrintControls tab={tab} />
           <ExportControls
             tab={tab}
             gameFilter={game}
-            inventory={inventory}
-            purchases={purchases}
-            sales={sales}
+            inventory={filteredInventory}
+            purchases={filteredPurchases}
+            sales={filteredSales}
           />
           <select
             value={game}
@@ -2532,7 +2727,7 @@ export default function ManifestPage() {
       </div>
 
       {/* Summary cards */}
-      {tab === 'inventory' && !loading && inventory.length > 0 && (
+      {tab === 'inventory' && !loading && filteredInventory.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
           <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
             <div className="text-xs text-gray-500 mb-1">Cost Basis</div>
@@ -2579,15 +2774,22 @@ export default function ManifestPage() {
         </div>
       )}
 
-      {/* Add purchase */}
+      {/* Add purchase / intake */}
       <div className="no-print flex items-start gap-2">
-        <AddPurchaseForm onAdded={() => { load(); refreshPlatforms(); }} platforms={platforms} />
-        <a
-          href="/inventory/graded/new"
-          className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded text-sm font-medium whitespace-nowrap"
-        >
-          + Add Graded Slab
-        </a>
+        {category === 'graded' ? (
+          <a
+            href="/inventory/graded/new"
+            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded text-sm font-medium whitespace-nowrap"
+          >
+            + Add Graded Slab
+          </a>
+        ) : (
+          <AddPurchaseForm
+            onAdded={() => { load(); refreshPlatforms(); }}
+            platforms={platforms}
+            defaultItemType={category === 'singles' ? 'single' : 'booster_box'}
+          />
+        )}
       </div>
 
       {/* Tabs */}
@@ -2643,7 +2845,7 @@ export default function ManifestPage() {
         <p className="text-gray-400 text-sm">Loading…</p>
       ) : tab === 'inventory' ? (
         <InventoryTable
-          items={inventory}
+          items={filteredInventory}
           onRefresh={() => { load(); refreshPlatforms(); }}
           platforms={platforms}
           search={inventorySearch}
@@ -2654,9 +2856,9 @@ export default function ManifestPage() {
           }}
         />
       ) : tab === 'purchases' ? (
-        <PurchasesTable items={purchases} onRefresh={() => { load(); refreshPlatforms(); }} platforms={platforms} />
+        <PurchasesTable items={filteredPurchases} onRefresh={() => { load(); refreshPlatforms(); }} platforms={platforms} />
       ) : tab === 'sales' ? (
-        <SalesTable items={sales} />
+        <SalesTable items={filteredSales} />
       ) : (
         <AnalyticsTable groups={analytics} />
       )}

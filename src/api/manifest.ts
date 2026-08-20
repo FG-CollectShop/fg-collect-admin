@@ -55,6 +55,11 @@ export interface InventoryItem extends Purchase {
   xirr_liq?: number;          // annualised return @ liquidation (85% of market)
   sku_note?: string;          // shared note across purchases of same tcgplayer_product_id
   sku_location?: string;      // shared storage location across purchases of same tcgplayer_product_id
+  // WooCommerce listing state (populated when purchase has a linked listing):
+  listing_id?: string;
+  publish_state?: 'draft' | 'published' | 'delisted';
+  wc_product_id?: number;
+  wc_sync_error?: string;
   // Populated in SKU-rollup mode:
   lot_count?: number;         // number of lots rolled up
   platforms?: string[];       // distinct platforms across lots
@@ -364,4 +369,26 @@ export function tcgProductURL(productId: number): string {
 
 export function formatCents(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+// ── WooCommerce listing promotion ─────────────────────────────────────────────
+
+export interface PromoteResp {
+  listing_id: string;
+  publish_state: 'published';
+  wc_pending?: boolean;
+}
+
+export async function promotePurchase(
+  purchaseId: string,
+  priceCents: number,
+): Promise<PromoteResp> {
+  return fetchAPI<PromoteResp>(`/api/v1/admin/purchases/${purchaseId}/promote`, {
+    method: 'POST',
+    body: JSON.stringify({ price_cents: priceCents }),
+  });
+}
+
+export async function delistListing(listingId: string): Promise<void> {
+  await fetchAPI(`/api/v1/admin/listings/${listingId}/delist`, { method: 'POST' });
 }

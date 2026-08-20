@@ -4,10 +4,9 @@ import { useAuth } from "@/auth/AuthContext";
 import { signOut } from "@/firebase";
 
 const nav: { to: string; label: string; end?: boolean }[] = [
-  { to: "/manifest", label: "Manifest" },
-  { to: "/portfolio", label: "Portfolio" },
-  { to: "/sets", label: "Sets" },
-  { to: "/inventory/graded", label: "Graded" },
+  { to: "/sealed", label: "Sealed" },
+  { to: "/singles", label: "Singles" },
+  { to: "/graded", label: "Graded" },
   { to: "/where", label: "Storage" },
 ];
 

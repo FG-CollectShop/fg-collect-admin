@@ -5,18 +5,12 @@ import { RequireAuth } from "@/auth/RequireAuth";
 import { AppShell } from "@/layout/AppShell";
 import { ErrorBoundary } from "@/layout/ErrorBoundary";
 import { LoginPage } from "@/pages/LoginPage";
-import { SetsPage } from "@/pages/SetsPage";
-import { SetDetailPage } from "@/pages/SetDetailPage";
-import { GradedInventoryPage } from "@/pages/GradedInventoryPage";
 import { GradedIntakePage } from "@/pages/GradedIntakePage";
 import { PricingRulesPage } from "@/pages/PricingRulesPage";
 import { BinsPage } from "@/pages/BinsPage";
 import { WhereIsPage } from "@/pages/WhereIsPage";
 import { AcquisitionsPage } from "@/pages/AcquisitionsPage";
 import { PrintLabelsPage } from "@/pages/PrintLabelsPage";
-import { PortfolioGamesPage } from "@/pages/PortfolioGamesPage";
-import { PortfolioSetsPage } from "@/pages/PortfolioSetsPage";
-import { PortfolioSetCardsPage } from "@/pages/PortfolioSetCardsPage";
 import ManifestPage from "@/pages/ManifestPage";
 
 const queryClient = new QueryClient({
@@ -52,10 +46,11 @@ export function App() {
                   <AppShell>
                     <ErrorBoundary>
                       <Routes>
-                      <Route path="/" element={<Navigate to="/manifest" replace />} />
-                      <Route path="/sets" element={<SetsPage />} />
-                      <Route path="/sets/:id" element={<SetDetailPage />} />
-                      <Route path="/inventory/graded" element={<GradedInventoryPage />} />
+                      <Route path="/" element={<Navigate to="/sealed" replace />} />
+                      <Route path="/manifest" element={<Navigate to="/sealed" replace />} />
+                      <Route path="/sealed" element={<ManifestPage category="sealed" />} />
+                      <Route path="/singles" element={<ManifestPage category="singles" />} />
+                      <Route path="/graded" element={<ManifestPage category="graded" />} />
                       <Route path="/inventory/graded/new" element={<GradedIntakePage />} />
                       <Route path="/inventory/print" element={<PrintLabelsPage />} />
                       <Route path="/pricing" element={<PricingRulesPage />} />
@@ -63,11 +58,7 @@ export function App() {
                       <Route path="/where" element={<WhereIsPage />} />
                       <Route path="/acquisitions" element={<AcquisitionsPage />} />
                       <Route path="/acquisitions/:id" element={<AcquisitionsPage />} />
-                      <Route path="/manifest" element={<ManifestPage />} />
-                      <Route path="/portfolio" element={<PortfolioGamesPage />} />
-                      <Route path="/portfolio/:game" element={<PortfolioSetsPage />} />
-                      <Route path="/portfolio/:game/:setId" element={<PortfolioSetCardsPage />} />
-                      <Route path="*" element={<Navigate to="/portfolio" replace />} />
+                      <Route path="*" element={<Navigate to="/sealed" replace />} />
                       </Routes>
                     </ErrorBoundary>
                   </AppShell>
